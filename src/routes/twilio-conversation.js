@@ -105,8 +105,15 @@ export function createConversationRoute({
 
 function waitForAgentResponse(session, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('agent_response_timeout')), timeoutMs);
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      reject(new Error('agent_response_timeout'));
+    }, timeoutMs);
     session.onAgentResponse((text) => {
+      if (done) return;
+      done = true;
       clearTimeout(timer);
       resolve(text);
     });

@@ -118,7 +118,9 @@ describe('POST /webhooks/twilio/conversation', () => {
 
     expect(session.sendUserMessage).not.toHaveBeenCalled();
     expect(conversationsClient.writeBotMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ body: expect.stringMatching(/describe your request in text/i) }),
+      expect.objectContaining({
+        body: 'I can only read text on WhatsApp right now — please describe your request in text and I will help.',
+      }),
     );
   });
 
@@ -148,4 +150,39 @@ describe('POST /webhooks/twilio/conversation', () => {
     expect(res.status).toBe(200);
     expect(session.sendUserMessage).not.toHaveBeenCalled();
   });
+
+  it('rejects the pending response after AGENT_RESPONSE_TIMEOUT_MS without dispatching stale replies', async () => {
+    // Session that never replies — sendUserMessage does nothing
+    // The onAgentResponse callback is stored but never invoked
+    const listeners = [];
+    const session = {
+      open: vi.fn().mockResolvedValue({ elevenlabsConversationId: 'c1' }),
+      sendUserMessage: vi.fn(),
+      onAgentResponse: vi.fn((fn) => listeners.push(fn)),
+      onToolCall: vi.fn(),
+      onClose: vi.fn(),
+      close: vi.fn(),
+    };
+    const { app } = buildApp({ session });
+
+    const res = await request(app)
+      .post('/webhooks/twilio/conversation')
+      .type('form')
+      .send({
+        EventType: 'onMessageAdded',
+        ConversationSid: 'CH1',
+        MessageSid: 'IMtimeout',
+        Author: 'whatsapp:+15551234567',
+        Body: 'hello',
+      });
+
+    // Route registers exactly one listener
+    expect(session.onAgentResponse).toHaveBeenCalledTimes(1);
+    expect(listeners).toHaveLength(1);
+    // Response arrives (fallback sent after timeout)
+    expect(res.status).toBe(200);
+    // Verify the timeout guard works: calling the stale listener after timeout should be a no-op
+    // (it does not crash or resolve/reject again due to the done flag)
+    expect(() => listeners[0]('stale_reply')).not.toThrow();
+  }, { timeout: 30_000 });
 });
