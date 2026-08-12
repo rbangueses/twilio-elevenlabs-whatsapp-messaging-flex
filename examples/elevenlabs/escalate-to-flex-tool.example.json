@@ -1,0 +1,67 @@
+{
+  "type": "webhook",
+  "name": "escalate_to_flex",
+  "description": "Escalate the active WhatsApp conversation to a Twilio Flex human agent. Use this only when the customer asks for a human, the issue is outside bot scope, or the conversation cannot be safely resolved by automation.",
+  "response_timeout_secs": 20,
+  "api_schema": {
+    "url": "https://{{system__env_relay_host}}/webhooks/elevenlabs/escalate-to-flex",
+    "method": "POST",
+    "request_headers": {
+      "authorization": {
+        "env_var_label": "relay_authorization"
+      },
+      "content-type": "application/json"
+    },
+    "request_body_schema": {
+      "type": "object",
+      "description": "Payload sent to the Twilio relay when the WhatsApp customer needs a human. Dynamic variables identify the Twilio Conversation, and LLM-generated fields provide concise escalation context for Flex.",
+      "properties": {
+        "conversationSid": {
+          "type": "string",
+          "dynamic_variable": "twilioConversationSid"
+        },
+        "elevenlabsConversationId": {
+          "type": "string",
+          "dynamic_variable": "system__conversation_id"
+        },
+        "handoffId": {
+          "type": "string",
+          "dynamic_variable": "handoffId"
+        },
+        "customerAddress": {
+          "type": "string",
+          "dynamic_variable": "customerAddress"
+        },
+        "businessAddress": {
+          "type": "string",
+          "dynamic_variable": "businessAddress"
+        },
+        "intent": {
+          "type": "string",
+          "description": "Snake_case routing intent, such as billing_dispute, account_access, technical_support, complaint, or general_support."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Snake_case escalation reason, such as explicit_human_request, bot_cannot_resolve, customer_frustrated, sensitive_request, or policy_required."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Concise handoff summary for the human Flex agent. Include the customer's goal, what the bot already tried, and any important details. Keep it under 500 characters."
+        },
+        "priority": {
+          "type": "number",
+          "description": "Optional routing priority from 0 to 10. Use 5 for normal priority and higher values for urgent or frustrated customers."
+        }
+      },
+      "required": [
+        "conversationSid",
+        "handoffId",
+        "customerAddress",
+        "businessAddress",
+        "intent",
+        "reason",
+        "summary"
+      ]
+    }
+  }
+}
