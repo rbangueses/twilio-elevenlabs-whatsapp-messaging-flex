@@ -53,6 +53,17 @@ The relay needs durable state per active Twilio Conversation.
 
 For local development, a file-backed store or SQLite is enough. For production, use Redis, Postgres, DynamoDB, or another store with conditional updates so the `bot -> human_pending` transition is atomic.
 
+## Mode Transitions
+
+| Transition | Trigger | Owner |
+| --- | --- | --- |
+| `bot -> human_pending` | `escalate_to_flex` tool call validated. Mode is persisted before the Flex Interaction is created. | Handoff Controller |
+| `human_pending -> human` | TaskRouter `reservation.accepted` event for the escalation task. Fallback: Conversations `onParticipantAdded` when a Flex worker joins. | TaskRouter Event Handler |
+| `human -> closed` | Twilio Conversations `onConversationStateUpdated` with `State=closed`, or TaskRouter `task.completed` / `task.canceled`. | TaskRouter Event Handler |
+| `closed -> bot` (optional) | Admin reset for a new session. Opt-in only. | Agent Control |
+
+`handoffId` is minted by the relay when it opens the ElevenLabs session for a Conversation, using the format `handoff_<conversationSid>_<epoch_ms>`. It is not a Twilio or ElevenLabs identifier.
+
 ## Idempotency
 
 Twilio webhooks can retry. ElevenLabs tool calls can also be retried or repeated by the agent. The relay should make every operation idempotent.
@@ -110,7 +121,8 @@ The ElevenLabs agent calls a webhook tool when it needs a human. The tool should
 - Method: `POST`
 - URL: `https://<relay-host>/webhooks/elevenlabs/escalate-to-flex`
 - Header: `Authorization: Bearer <HANDOFF_TOKEN>`
-- Required fields: `conversationSid`, `handoffId`, `intent`, `reason`, `summary`
+- Required fields: `conversationSid`, `handoffId`, `customerAddress`, `businessAddress`, `intent`, `reason`, `summary`
+- Optional fields: `elevenlabsConversationId` (populated automatically from `system__conversation_id`), `priority`
 
 The relay validates the payload, switches state to `human_pending`, creates the Flex Interaction, stores the returned IDs, and returns a small JSON success response.
 
@@ -118,17 +130,21 @@ The relay validates the payload, switches state to `human_pending`, creates the 
 
 The relay should create an Interaction against the existing Twilio Conversation SID. For a customer-initiated WhatsApp contact, the media channel already exists, so the request binds Flex routing to that `CH...`.
 
-Important attributes to expose to Flex agents:
+The canonical attribute set (used for both routing metadata and Flex UI surfaces):
 
-- `summary`
-- `intent`
-- `reason`
+- `channelType`
+- `direction`
+- `name`
+- `from`
+- `customerAddress`
+- `customerName`
+- `businessAddress`
 - `conversationSid`
 - `elevenlabsConversationId`
 - `handoffId`
-- `customerAddress`
-- `businessAddress`
-- `botHandledUntil`
+- `reason`
+- `intent`
+- `summary`
 
 If the Flex task appears but the agent cannot see the transcript, verify that:
 

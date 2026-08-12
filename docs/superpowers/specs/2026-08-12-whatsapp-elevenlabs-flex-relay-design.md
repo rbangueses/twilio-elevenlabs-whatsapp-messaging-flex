@@ -77,7 +77,7 @@ Responsibilities:
 
 Responsibilities:
 
-- Persist `conversationSid`, customer address, business address, mode, ElevenLabs conversation ID, handoff ID, Flex Interaction SID, Task SID, and timestamps.
+- Persist `conversationSid`, customer address, business address, mode, ElevenLabs conversation ID, ElevenLabs session status, handoff ID, Flex Interaction SID, Task SID, and timestamps.
 - Enforce atomic transitions from `bot` to `human_pending`.
 - Record idempotency keys for Twilio events, bot replies, and handoffs.
 
@@ -92,11 +92,21 @@ Responsibilities:
 - Store returned Flex IDs.
 - Return existing handoff details for duplicate requests.
 
+### TaskRouter Event Handler
+
+Responsibilities:
+
+- Receive TaskRouter Event Callbacks for tasks created by the relay.
+- Flip mode from `human_pending` to `human` on `reservation.accepted`.
+- Flip mode to `closed` on `task.completed` or `task.canceled`, or on Twilio Conversations `onConversationStateUpdated` with `State=closed`.
+- Persist `taskSid`, worker SID, and task lifecycle timestamps.
+
 ### Agent Control
 
 Responsibilities:
 
 - Stop relaying new customer messages to ElevenLabs after escalation starts.
+- Close the ElevenLabs WebSocket session once mode leaves `bot`.
 - Optionally support an admin reset back to bot mode after a human closes the thread.
 
 ### Observability
@@ -116,6 +126,37 @@ Responsibilities:
 | `closed` | Thread is complete. | Ignore, archive, or start a new policy-defined session. |
 
 The `bot -> human_pending` transition must be persisted before creating the Flex Interaction. This avoids a race where the customer sends another message while Flex routing is being created.
+
+Transition triggers:
+
+| Transition | Trigger |
+| --- | --- |
+| `bot -> human_pending` | Handoff Controller receives a valid `escalate_to_flex` call and persists the mode change before calling the Flex Interactions API. |
+| `human_pending -> human` | TaskRouter fires `reservation.accepted` for the task created during escalation. An equivalent fallback is the `onParticipantAdded` Conversations event when a Flex worker joins the conversation. |
+| `human -> closed` | Twilio Conversations `onConversationStateUpdated` with `State=closed`, or TaskRouter `task.completed`/`task.canceled` for the escalation task. |
+
+From the relay's perspective, `human_pending` and `human` share the same customer-message policy (do not relay to ElevenLabs). The distinction exists for observability and to gate optional bot-reset flows.
+
+### handoffId Generation
+
+The relay generates `handoffId` when it opens the ElevenLabs session for a Conversation, using the format `handoff_<conversationSid>_<epoch_ms>`. It is passed to ElevenLabs as a dynamic variable and echoed back on the escalation call. It is not a Twilio or ElevenLabs identifier.
+
+### Bot Author Identity
+
+When writing bot replies into the Twilio Conversation, the relay authors messages as a dedicated bot participant. The identity is configured via `BOT_IDENTITY` (default `bot`). The relay ensures the bot participant exists on the Conversation before writing the first reply.
+
+### ElevenLabs Session Lifecycle
+
+- One WebSocket session per Conversation while mode is `bot`.
+- The session is closed as soon as mode leaves `bot` (escalation, closure, or reset).
+- Sessions idle beyond `ELEVENLABS_IDLE_TIMEOUT_MS` (default 15 minutes) are closed and reopened on the next inbound message.
+- On unexpected disconnect while still in `bot` mode, the relay reopens the session and replays enough recent Conversation history to reestablish context.
+
+### Media Handling
+
+- Text: relayed to ElevenLabs as `user_message`.
+- Non-text media (audio, image, document, location, contact): the relay replies with a short fallback message asking the customer to describe their request in text.
+- Automatic escalation on media is opt-in via `ESCALATE_ON_MEDIA=true`; when disabled, media never triggers a handoff on its own.
 
 ## Data Contracts
 
@@ -148,13 +189,17 @@ The `bot -> human_pending` transition must be persisted before creating the Flex
 
 ### Flex Interaction Attributes
 
+Canonical attribute set for the Flex Interaction. All three docs and any implementation must use this set exactly.
+
 ```json
 {
   "channelType": "whatsapp",
   "direction": "inbound",
+  "name": "whatsapp:+15551234567",
   "from": "whatsapp:+15551234567",
   "customerAddress": "whatsapp:+15551234567",
   "customerName": "whatsapp:+15551234567",
+  "businessAddress": "whatsapp:+14155238886",
   "conversationSid": "CHxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "elevenlabsConversationId": "conv_abc123",
   "handoffId": "handoff_CHxxxxxxxx_1700000000000",

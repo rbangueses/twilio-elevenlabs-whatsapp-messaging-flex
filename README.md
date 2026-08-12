@@ -71,6 +71,12 @@ The relay should keep a small state machine per Twilio Conversation:
 
 The most important rule is simple: once escalation begins, the bot must stop replying in that Twilio Conversation.
 
+Mode transition triggers (details in [docs/architecture.md](docs/architecture.md#mode-transitions)):
+
+- `bot` → `human_pending`: validated `escalate_to_flex` tool call.
+- `human_pending` → `human`: TaskRouter `reservation.accepted` for the escalation task.
+- `human` → `closed`: Twilio Conversations `onConversationStateUpdated` with `State=closed`, or TaskRouter `task.completed` / `task.canceled`.
+
 ## Local Development With ngrok
 
 Run the relay locally:
@@ -188,9 +194,12 @@ ElevenLabs should call the relay with:
 The relay should validate:
 
 - `Authorization: Bearer <HANDOFF_TOKEN>`.
+- Required fields present: `conversationSid`, `handoffId`, `customerAddress`, `businessAddress`, `intent`, `reason`, `summary`.
 - `conversationSid` starts with `CH`.
+- `customerAddress` and `businessAddress` start with `whatsapp:`.
 - The conversation exists in local state and is not already escalated.
-- `summary`, `intent`, and `reason` are present and short enough for TaskRouter attributes.
+- `summary`, `intent`, and `reason` are short enough for TaskRouter attributes.
+- `elevenlabsConversationId` and `priority` are optional; accept and store them if present.
 
 ## Flex Interaction Shape
 
@@ -219,6 +228,7 @@ Conceptual request body:
         "from": "whatsapp:+15551234567",
         "customerAddress": "whatsapp:+15551234567",
         "customerName": "whatsapp:+15551234567",
+        "businessAddress": "whatsapp:+14155238886",
         "conversationSid": "CHxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
         "elevenlabsConversationId": "conv_abc123",
         "handoffId": "handoff_CHxxxxxxxx_1700000000000",
