@@ -20,4 +20,8 @@ describe('bearerAuth', () => {
     const wrong = await request(buildApp()).post('/x').set('Authorization', 'Bearer nope');
     expect(wrong.status).toBe(401);
   });
+  it('rejects a non-Bearer authorization scheme', async () => {
+    const res = await request(buildApp()).post('/x').set('Authorization', 'Basic secret');
+    expect(res.status).toBe(401);
+  });
 });
