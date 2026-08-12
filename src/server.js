@@ -3,6 +3,8 @@ import { healthRouter } from './routes/health.js';
 import { createConversationRoute } from './routes/twilio-conversation.js';
 import { createMessageStatusRoute } from './routes/twilio-message-status.js';
 import { createEscalateRoute } from './routes/elevenlabs-escalate.js';
+import { createTaskRouterRoute } from './routes/taskrouter-events.js';
+import { createTaskRouterHandler } from './taskrouter/event-handler.js';
 import { loadConfig } from './config.js';
 
 export function createServer(config, deps = {}) {
@@ -33,6 +35,15 @@ export function createServer(config, deps = {}) {
         logger: deps.logger,
       }),
     );
+  }
+
+  if (deps.store && deps.cache && deps.logger) {
+    const handler = createTaskRouterHandler({
+      store: deps.store,
+      cache: deps.cache,
+      logger: deps.logger,
+    });
+    app.use(createTaskRouterRoute({ handler, config }));
   }
 
   if (deps.handoffController) {
