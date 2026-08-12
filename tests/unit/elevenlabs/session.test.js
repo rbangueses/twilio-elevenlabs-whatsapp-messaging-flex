@@ -73,4 +73,62 @@ describe('elevenlabs session', () => {
     const reply = JSON.parse(ws.sent[0]);
     expect(reply).toEqual({ type: 'pong', event_id: 42 });
   });
+
+  it('sendUserMessage throws before open()', () => {
+    const ws = new FakeWs();
+    const session = createSession({
+      url: 'wss://example', apiKey: 'xi', agentId: 'a1', wsFactory: () => ws,
+    });
+
+    expect(() => session.sendUserMessage('hi')).toThrow(/session not open/i);
+  });
+
+  it('onClose fires when the WS emits close', async () => {
+    const ws = new FakeWs();
+    const session = createSession({
+      url: 'wss://example', apiKey: 'xi', agentId: 'a1', wsFactory: () => ws,
+    });
+    const openPromise = session.open({});
+    ws.simulateOpen();
+    ws.simulateMessage({ type: 'conversation_initiation_metadata', conversation_id: 'conv_1' });
+    await openPromise;
+
+    const closeHandler = vi.fn();
+    session.onClose(closeHandler);
+
+    ws.close();
+
+    expect(closeHandler).toHaveBeenCalled();
+  });
+
+  it('open() rejects on WS error', async () => {
+    const ws = new FakeWs();
+    const session = createSession({
+      url: 'wss://example', apiKey: 'xi', agentId: 'a1', wsFactory: () => ws,
+    });
+
+    const openPromise = session.open({});
+    ws.emit('error', new Error('boom'));
+
+    await expect(openPromise).rejects.toThrow('boom');
+  });
+
+  it('malformed JSON in WS message is silently skipped', async () => {
+    const ws = new FakeWs();
+    const session = createSession({
+      url: 'wss://example', apiKey: 'xi', agentId: 'a1', wsFactory: () => ws,
+    });
+    const openPromise = session.open({});
+    ws.simulateOpen();
+    ws.simulateMessage({ type: 'conversation_initiation_metadata', conversation_id: 'conv_1' });
+    await openPromise;
+
+    const responses = [];
+    session.onAgentResponse((r) => responses.push(r));
+
+    ws.emit('message', Buffer.from('not json'));
+    ws.simulateMessage({ type: 'agent_response', agent_response_event: { agent_response: 'valid' } });
+
+    expect(responses).toEqual(['valid']);
+  });
 });
