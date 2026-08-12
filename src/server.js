@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import twilio from 'twilio';
 import { WebSocket } from 'ws';
@@ -21,6 +22,9 @@ import { createTaskRouterRoute } from './routes/taskrouter-events.js';
 
 export function bootstrap({ config = loadConfig() } = {}) {
   const logger = createLogger({ level: config.logLevel });
+  if (!config.handoffToken) {
+    logger.warn('handoff_token_missing_escalate_route_will_reject_all_requests');
+  }
   const twilioClient = twilio(config.twilio.accountSid, config.twilio.authToken);
   const store = createStore(config);
   const cache = createIdempotencyCache();
@@ -60,8 +64,9 @@ export function createServer(config, deps = {}) {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (fileURLToPath(import.meta.url) === process.argv[1]) {
   const config = loadConfig();
   const { app, logger } = bootstrap({ config });
-  app.listen(config.port, () => logger.info({ port: config.port }, 'relay_listening'));
+  const server = app.listen(config.port, () => logger.info({ port: config.port }, 'relay_listening'));
+  server.on('error', (err) => logger.error({ err: { message: err.message, code: err.code } }, 'server_error'));
 }

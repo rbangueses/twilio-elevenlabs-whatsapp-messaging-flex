@@ -24,4 +24,17 @@ describe('bearerAuth', () => {
     const res = await request(buildApp()).post('/x').set('Authorization', 'Basic secret');
     expect(res.status).toBe(401);
   });
+  it('rejects all requests when the configured token is empty', async () => {
+    const app = express();
+    app.post('/x', bearerAuth({ token: '' }), (_req, res) => res.status(204).end());
+
+    const noHeader = await request(app).post('/x');
+    expect(noHeader.status).toBe(401);
+
+    const emptyBearer = await request(app).post('/x').set('Authorization', 'Bearer ');
+    expect(emptyBearer.status).toBe(401);
+
+    const someToken = await request(app).post('/x').set('Authorization', 'Bearer anything');
+    expect(someToken.status).toBe(401);
+  });
 });
