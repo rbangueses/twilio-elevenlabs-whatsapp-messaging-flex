@@ -261,6 +261,32 @@ Conceptual request body:
 - ElevenLabs webhook tools: https://elevenlabs.io/docs/eleven-agents/customization/tools/webhook-tools
 - Reference voice blueprint: https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint
 
+## Running the Relay
+
+Install and start:
+
+```bash
+npm install
+cp examples/env.example .env
+# fill in TWILIO_*, FLEX_*, ELEVENLABS_*, HANDOFF_TOKEN, BOT_IDENTITY
+npm run dev
+```
+
+Expose it and configure webhooks:
+
+```bash
+ngrok http 3000
+```
+
+Set these URLs in Twilio and ElevenLabs:
+
+| Consumer | URL |
+| --- | --- |
+| Twilio Conversations (`onMessageAdded`, form-encoded) | `https://<ngrok>/webhooks/twilio/conversation` |
+| Twilio Conversations status callback | `https://<ngrok>/webhooks/twilio/message-status` |
+| Twilio TaskRouter Event Callback | `https://<ngrok>/webhooks/taskrouter/events` |
+| ElevenLabs `escalate_to_flex` tool | `https://<ngrok>/webhooks/elevenlabs/escalate-to-flex` |
+
 ## Next Steps
 
 1. Implement the Node relay service.
