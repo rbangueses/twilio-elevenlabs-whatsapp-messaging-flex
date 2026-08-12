@@ -98,4 +98,36 @@ describe('POST /webhooks/elevenlabs/escalate-to-flex', () => {
       .send(payload);
     expect(res.status).toBe(401);
   });
+
+  it('returns 502 on Flex Interaction failure and leaves mode at human_pending', async () => {
+    const flexClient = {
+      createInteraction: vi.fn().mockRejectedValue(new Error('flex boom')),
+    };
+    const sessionManager = { close: vi.fn() };
+    const res = await request(build({ flexClient, sessionManager }))
+      .post('/webhooks/elevenlabs/escalate-to-flex')
+      .set('Authorization', 'Bearer t')
+      .send(payload);
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'flex_interaction_create_failed' });
+    const s = await store.get('CH1');
+    expect(s.mode).toBe('human_pending');
+    expect(s.flexInteractionSid).toBeUndefined();
+    expect(sessionManager.close).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 when the conversation is not in bot mode', async () => {
+    await store.upsert('CH1', (prev) => ({ ...prev, mode: 'human' }));
+    const flexClient = { createInteraction: vi.fn() };
+    const sessionManager = { close: vi.fn() };
+    const res = await request(build({ flexClient, sessionManager }))
+      .post('/webhooks/elevenlabs/escalate-to-flex')
+      .set('Authorization', 'Bearer t')
+      .send(payload);
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({ error: 'invalid_state_transition' });
+    expect(flexClient.createInteraction).not.toHaveBeenCalled();
+  });
 });

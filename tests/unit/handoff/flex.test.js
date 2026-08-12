@@ -50,4 +50,44 @@ describe('flex client', () => {
       summary: 'Customer disputes charge.',
     });
   });
+
+  it('omits elevenlabsConversationId when not provided', async () => {
+    const create = vi.fn().mockResolvedValue({
+      sid: 'KDx',
+      routing: { properties: { sid: 'WTx' } },
+    });
+    const twilioClient = { flexApi: { v1: { interaction: { create } } } };
+    const client = createFlexClient({
+      twilioClient,
+      flexConfig: { workspaceSid: 'WSx', workflowSid: 'WWx', taskChannelUniqueName: 'chat' },
+    });
+    await client.createInteraction({
+      conversationSid: 'CH1',
+      customerAddress: 'whatsapp:+15551234567',
+      businessAddress: 'whatsapp:+14155238886',
+      intent: 'x', reason: 'y', summary: 'z',
+      handoffId: 'h1',
+    });
+    const attrs = create.mock.calls[0][0].routing.properties.attributes;
+    expect('elevenlabsConversationId' in attrs).toBe(false);
+  });
+
+  it('passes numeric priority through to the interaction attributes', async () => {
+    const create = vi.fn().mockResolvedValue({ sid: 'KDx', routing: { properties: { sid: 'WTx' } } });
+    const twilioClient = { flexApi: { v1: { interaction: { create } } } };
+    const client = createFlexClient({
+      twilioClient,
+      flexConfig: { workspaceSid: 'WSx', workflowSid: 'WWx', taskChannelUniqueName: 'chat' },
+    });
+    await client.createInteraction({
+      conversationSid: 'CH1',
+      customerAddress: 'whatsapp:+15551234567',
+      businessAddress: 'whatsapp:+14155238886',
+      intent: 'x', reason: 'y', summary: 'z',
+      handoffId: 'h1',
+      priority: 8,
+    });
+    const attrs = create.mock.calls[0][0].routing.properties.attributes;
+    expect(attrs.priority).toBe(8);
+  });
 });

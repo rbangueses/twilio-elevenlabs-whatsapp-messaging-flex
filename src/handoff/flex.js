@@ -20,12 +20,14 @@ export function createFlexClient({ twilioClient, flexConfig }) {
         customerName: customerAddress,
         businessAddress,
         conversationSid,
-        elevenlabsConversationId,
         handoffId,
         reason,
         intent,
         summary,
       };
+      if (typeof elevenlabsConversationId === 'string' && elevenlabsConversationId.length > 0) {
+        attributes.elevenlabsConversationId = elevenlabsConversationId;
+      }
       if (typeof priority === 'number') attributes.priority = priority;
 
       const created = await twilioClient.flexApi.v1.interaction.create({
