@@ -1,6 +1,7 @@
 import express from 'express';
 import { healthRouter } from './routes/health.js';
 import { createConversationRoute } from './routes/twilio-conversation.js';
+import { createMessageStatusRoute } from './routes/twilio-message-status.js';
 import { loadConfig } from './config.js';
 
 export function createServer(config, deps = {}) {
@@ -16,6 +17,17 @@ export function createServer(config, deps = {}) {
         cache: deps.cache,
         conversationsClient: deps.conversationsClient,
         sessionManager: deps.sessionManager,
+        config,
+        logger: deps.logger,
+      }),
+    );
+  }
+
+  if (deps.store && deps.cache && deps.logger) {
+    app.use(
+      createMessageStatusRoute({
+        store: deps.store,
+        cache: deps.cache,
         config,
         logger: deps.logger,
       }),
