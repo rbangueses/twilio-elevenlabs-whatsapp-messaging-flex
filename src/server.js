@@ -28,7 +28,7 @@ export function bootstrap({ config = loadConfig() } = {}) {
   const twilioClient = twilio(config.twilio.accountSid, config.twilio.authToken);
   const store = createStore(config);
   const cache = createIdempotencyCache();
-  const conversationsClient = createConversationsClient({ twilioClient, botIdentity: config.botIdentity });
+  const conversationsClient = createConversationsClient({ twilioClient, botIdentity: config.botIdentity, conversationsServiceSid: config.twilio.conversationsServiceSid });
   const flexClient = createFlexClient({ twilioClient, flexConfig: config.flex });
   const sessionManager = createSessionManager({
     idleTimeoutMs: config.elevenlabs.idleTimeoutMs,

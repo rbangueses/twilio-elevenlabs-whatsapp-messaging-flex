@@ -1,8 +1,11 @@
 const PARTICIPANT_EXISTS = new Set([50433, 50438]);
 
-export function createConversationsClient({ twilioClient, botIdentity }) {
+export function createConversationsClient({ twilioClient, botIdentity, conversationsServiceSid }) {
   function conv(sid) {
-    return twilioClient.conversations.v1.conversations(sid);
+    const base = conversationsServiceSid
+      ? twilioClient.conversations.v1.services(conversationsServiceSid)
+      : twilioClient.conversations.v1;
+    return base.conversations(sid);
   }
 
   return {

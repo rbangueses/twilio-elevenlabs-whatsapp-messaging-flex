@@ -30,16 +30,21 @@ export function createHandoffController({ store, cache, sessionManager, flexClie
       return res.status(200).json(response);
     }
 
-    try {
-      await store.transitionMode(payload.conversationSid, 'bot', 'human_pending', {
-        handoffId: payload.handoffId,
-        elevenlabsConversationId: payload.elevenlabsConversationId ?? existing?.elevenlabsConversationId ?? null,
-      });
-    } catch (err) {
-      if (err instanceof InvalidTransition) {
-        return res.status(409).json({ error: 'invalid_state_transition' });
+    const isRetryAfterFailedFlex =
+      existing?.mode === 'human_pending' && !existing?.flexInteractionSid;
+
+    if (!isRetryAfterFailedFlex) {
+      try {
+        await store.transitionMode(payload.conversationSid, 'bot', 'human_pending', {
+          handoffId: payload.handoffId,
+          elevenlabsConversationId: payload.elevenlabsConversationId ?? existing?.elevenlabsConversationId ?? null,
+        });
+      } catch (err) {
+        if (err instanceof InvalidTransition) {
+          return res.status(409).json({ error: 'invalid_state_transition' });
+        }
+        throw err;
       }
-      throw err;
     }
 
     let interactionSid, taskSid;

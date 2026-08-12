@@ -172,6 +172,7 @@ The agent prompt should instruct the agent to call `escalate_to_flex` when:
 | `POST` | `/webhooks/twilio/conversation` | Twilio Conversations | Receive inbound WhatsApp conversation events. |
 | `POST` | `/webhooks/twilio/message-status` | Twilio Messaging or Conversations | Record delivery status and failures. |
 | `POST` | `/webhooks/elevenlabs/escalate-to-flex` | ElevenLabs webhook tool | Create a Flex Interaction for the existing Twilio Conversation. |
+| `POST` | `/webhooks/taskrouter/events` | Twilio TaskRouter | Advance conversation state on reservation.accepted / task.completed / task.canceled. |
 
 ## Escalation Payload
 
@@ -267,7 +268,7 @@ Install and start:
 
 ```bash
 npm install
-cp examples/env.example .env
+cp .env.example .env
 # fill in TWILIO_*, FLEX_*, ELEVENLABS_*, HANDOFF_TOKEN, BOT_IDENTITY
 npm run dev
 ```

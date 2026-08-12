@@ -117,6 +117,33 @@ describe('POST /webhooks/elevenlabs/escalate-to-flex', () => {
     expect(sessionManager.close).not.toHaveBeenCalled();
   });
 
+  it('recovers on retry after a Flex Interaction failure', async () => {
+    const create = vi.fn()
+      .mockRejectedValueOnce(new Error('flex boom'))
+      .mockResolvedValueOnce({ interactionSid: 'KDretry', taskSid: 'WTretry' });
+    const flexClient = { createInteraction: create };
+    const sessionManager = { close: vi.fn() };
+    const app = build({ flexClient, sessionManager });
+
+    const first = await request(app)
+      .post('/webhooks/elevenlabs/escalate-to-flex')
+      .set('Authorization', 'Bearer t')
+      .send(payload);
+    expect(first.status).toBe(502);
+    expect((await store.get('CH1')).mode).toBe('human_pending');
+
+    const second = await request(app)
+      .post('/webhooks/elevenlabs/escalate-to-flex')
+      .set('Authorization', 'Bearer t')
+      .send(payload);
+    expect(second.status).toBe(200);
+    expect(second.body.interactionSid).toBe('KDretry');
+    expect(second.body.taskSid).toBe('WTretry');
+    expect(create).toHaveBeenCalledTimes(2);
+    expect((await store.get('CH1')).flexInteractionSid).toBe('KDretry');
+    expect(sessionManager.close).toHaveBeenCalledWith('CH1');
+  });
+
   it('returns 409 when the conversation is not in bot mode', async () => {
     await store.upsert('CH1', (prev) => ({ ...prev, mode: 'human' }));
     const flexClient = { createInteraction: vi.fn() };
