@@ -19,7 +19,10 @@ export function createMessageStatusRoute({
     if (!MessageSid || !MessageStatus || !ConversationSid) return res.status(400).end();
 
     const key = `twilio:status:${MessageSid}:${MessageStatus}`;
-    if (cache.seen(key)) return res.status(200).end();
+    if (cache.seen(key)) {
+      logger.child({ conversationSid: ConversationSid, messageSid: MessageSid, messageStatus: MessageStatus }).info('duplicate_status_ignored');
+      return res.status(200).end();
+    }
     cache.remember(key, true);
 
     await store.upsert(ConversationSid, (prev) => ({
@@ -29,6 +32,8 @@ export function createMessageStatusRoute({
         [MessageSid]: { status: MessageStatus, updatedAt: new Date().toISOString() },
       },
     }));
+
+    logger.child({ conversationSid: ConversationSid, messageSid: MessageSid, messageStatus: MessageStatus }).info('message_status_recorded');
 
     res.status(200).end();
   });
