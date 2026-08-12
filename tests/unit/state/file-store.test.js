@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFileStore, InvalidTransition } from '../../../src/state/file-store.js';
@@ -46,5 +46,31 @@ describe('file store', () => {
     await expect(
       store.transitionMode('CH1', 'bot', 'human_pending'),
     ).rejects.toBeInstanceOf(InvalidTransition);
+  });
+
+  it('cross-key concurrent writes both survive on disk (Finding 2 regression)', async () => {
+    const half = 50;
+    await store.upsert('CH1', () => ({ conversationSid: 'CH1', mode: 'bot', counter: 0 }));
+    await store.upsert('CH2', () => ({ conversationSid: 'CH2', mode: 'bot', counter: 0 }));
+
+    await Promise.all([
+      ...Array.from({ length: half }, () =>
+        store.upsert('CH1', (prev) => ({ ...prev, counter: prev.counter + 1 })),
+      ),
+      ...Array.from({ length: half }, () =>
+        store.upsert('CH2', (prev) => ({ ...prev, counter: prev.counter + 1 })),
+      ),
+    ]);
+
+    // Simulate a restart: read the file directly from disk, bypassing in-memory cache.
+    const raw = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
+    expect(raw.CH1.counter).toBe(half);
+    expect(raw.CH2.counter).toBe(half);
+  });
+
+  it('transitionMode accepts an array of allowed source modes', async () => {
+    await store.upsert('CH1', () => ({ conversationSid: 'CH1', mode: 'human_pending' }));
+    const next = await store.transitionMode('CH1', ['bot', 'human_pending'], 'human');
+    expect(next.mode).toBe('human');
   });
 });

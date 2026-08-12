@@ -23,19 +23,32 @@ export function createFileStore({ path }) {
     return cache;
   }
 
-  async function writeAll(data) {
-    await mkdir(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp`;
-    await writeFile(tmp, JSON.stringify(data, null, 2));
-    await rename(tmp, path);
-    cache = data;
+  // Serialize all disk writes so concurrent per-key locks cannot interleave
+  // renames and lose a key on process restart (Finding 2).
+  let writeQueue = Promise.resolve();
+  function serializeWrite(fn) {
+    const next = writeQueue.then(fn, fn);
+    writeQueue = next.catch(() => {}); // don't poison the queue on error
+    return next;
   }
 
+  async function writeAll(data) {
+    return serializeWrite(async () => {
+      await mkdir(dirname(path), { recursive: true });
+      const tmp = `${path}.tmp`;
+      await writeFile(tmp, JSON.stringify(data, null, 2));
+      await rename(tmp, path);
+      cache = data;
+    });
+  }
+
+  // Fix Finding 1: store `p` directly so the identity check in finally() works
+  // and the locks Map does not grow unbounded.
   async function withLock(key, fn) {
     const prev = locks.get(key) ?? Promise.resolve();
     let release;
     const p = new Promise((r) => (release = r));
-    locks.set(key, prev.then(() => p));
+    locks.set(key, p); // was: prev.then(() => p) — caused cleanup to always fail
     try {
       await prev;
       return await fn();
