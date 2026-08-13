@@ -172,6 +172,7 @@ The agent prompt should instruct the agent to call `escalate_to_flex` when:
 | `POST` | `/webhooks/twilio/conversation` | Twilio Conversations | Receive inbound WhatsApp conversation events. |
 | `POST` | `/webhooks/twilio/message-status` | Twilio Messaging or Conversations | Record delivery status and failures. |
 | `POST` | `/webhooks/elevenlabs/escalate-to-flex` | ElevenLabs webhook tool | Create a Flex Interaction for the existing Twilio Conversation. |
+| `POST` | `/webhooks/taskrouter/events` | Twilio TaskRouter | Advance conversation state on reservation.accepted / task.completed / task.canceled. |
 
 ## Escalation Payload
 
@@ -260,6 +261,32 @@ Conceptual request body:
 - ElevenLabs Agent WebSocket: https://elevenlabs.io/docs/eleven-agents/api-reference/eleven-agents/websocket
 - ElevenLabs webhook tools: https://elevenlabs.io/docs/eleven-agents/customization/tools/webhook-tools
 - Reference voice blueprint: https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint
+
+## Running the Relay
+
+Install and start:
+
+```bash
+npm install
+cp .env.example .env
+# fill in TWILIO_*, FLEX_*, ELEVENLABS_*, HANDOFF_TOKEN, BOT_IDENTITY
+npm run dev
+```
+
+Expose it and configure webhooks:
+
+```bash
+ngrok http 3000
+```
+
+Set these URLs in Twilio and ElevenLabs:
+
+| Consumer | URL |
+| --- | --- |
+| Twilio Conversations (`onMessageAdded`, form-encoded) | `https://<ngrok>/webhooks/twilio/conversation` |
+| Twilio Conversations status callback | `https://<ngrok>/webhooks/twilio/message-status` |
+| Twilio TaskRouter Event Callback | `https://<ngrok>/webhooks/taskrouter/events` |
+| ElevenLabs `escalate_to_flex` tool | `https://<ngrok>/webhooks/elevenlabs/escalate-to-flex` |
 
 ## Next Steps
 
