@@ -185,4 +185,42 @@ describe('POST /webhooks/twilio/conversation', () => {
     // (it does not crash or resolve/reject again due to the done flag)
     expect(() => listeners[0]('stale_reply')).not.toThrow();
   }, { timeout: 30_000 });
+
+  it('ignores SMS messages (Author lacks whatsapp: scheme) with 200 no-op', async () => {
+    const session = fakeSession('should not be called');
+    const { app, conversationsClient, manager } = buildApp({ session });
+    const res = await request(app)
+      .post('/webhooks/twilio/conversation')
+      .type('form')
+      .send({
+        EventType: 'onMessageAdded',
+        ConversationSid: 'CH-sms',
+        MessageSid: 'IM-sms',
+        Author: '+15551234567',
+        Body: 'sms message',
+      });
+    expect(res.status).toBe(200);
+    expect(manager.getOrOpen).not.toHaveBeenCalled();
+    expect(conversationsClient.writeBotMessage).not.toHaveBeenCalled();
+    expect(await store.get('CH-sms')).toBeNull();
+  });
+
+  it('ignores chat messages (Author is an identity string) with 200 no-op', async () => {
+    const session = fakeSession('should not be called');
+    const { app, conversationsClient, manager } = buildApp({ session });
+    const res = await request(app)
+      .post('/webhooks/twilio/conversation')
+      .type('form')
+      .send({
+        EventType: 'onMessageAdded',
+        ConversationSid: 'CH-chat',
+        MessageSid: 'IM-chat',
+        Author: 'alice@example.com',
+        Body: 'chat message',
+      });
+    expect(res.status).toBe(200);
+    expect(manager.getOrOpen).not.toHaveBeenCalled();
+    expect(conversationsClient.writeBotMessage).not.toHaveBeenCalled();
+    expect(await store.get('CH-chat')).toBeNull();
+  });
 });

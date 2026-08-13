@@ -135,7 +135,8 @@ describe('POST /webhooks/twilio/message-status', () => {
     expect(spyUpsert).toHaveBeenCalledOnce();
   });
 
-  it('initializes new conversation when not present', async () => {
+  it('returns 200 no-op for unknown ConversationSid (non-WhatsApp channel on shared service)', async () => {
+    const spyUpsert = vi.spyOn(store, 'upsert');
     const app = express();
     app.use(express.urlencoded({ extended: false }));
     app.use(
@@ -151,11 +152,10 @@ describe('POST /webhooks/twilio/message-status', () => {
     const res = await request(app)
       .post('/webhooks/twilio/message-status')
       .type('form')
-      .send({ MessageSid: 'IM2', MessageStatus: 'delivered', ConversationSid: 'CH2' });
+      .send({ MessageSid: 'IM2', MessageStatus: 'delivered', ConversationSid: 'CH-unknown' });
 
     expect(res.status).toBe(200);
-    const s = await store.get('CH2');
-    expect(s.mode).toBe('bot');
-    expect(s.deliveryStatuses.IM2).toBeDefined();
+    expect(await store.get('CH-unknown')).toBeNull();
+    expect(spyUpsert).not.toHaveBeenCalled();
   });
 });

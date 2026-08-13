@@ -25,8 +25,14 @@ export function createMessageStatusRoute({
     }
     cache.remember(key, true);
 
+    // Service is shared across Flex channels — only track statuses for
+    // conversations we already own (i.e., the conversation route ran first
+    // and initialized state). SMS/chat conversations get a silent 200.
+    const existing = await store.get(ConversationSid);
+    if (!existing) return res.status(200).end();
+
     await store.upsert(ConversationSid, (prev) => ({
-      ...(prev ?? { conversationSid: ConversationSid, mode: 'bot' }),
+      ...prev,
       deliveryStatuses: {
         ...(prev?.deliveryStatuses ?? {}),
         [MessageSid]: { status: MessageStatus, updatedAt: new Date().toISOString() },

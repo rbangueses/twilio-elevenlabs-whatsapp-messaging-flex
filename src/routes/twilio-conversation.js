@@ -27,6 +27,10 @@ export function createConversationRoute({
     const body = req.body ?? {};
     if (body.EventType !== 'onMessageAdded') return res.status(200).end();
     if (body.Author === config.botIdentity) return res.status(200).end();
+    // The Conversations Service is shared across Flex channels — this relay
+    // only handles WhatsApp. SMS authors are bare `+E164`; chat authors are
+    // free-form identity strings. Return 200 so Twilio doesn't retry.
+    if (!body.Author?.startsWith('whatsapp:')) return res.status(200).end();
 
     const conversationSid = body.ConversationSid;
     const messageSid = body.MessageSid;
