@@ -1,12 +1,74 @@
 # Twilio WhatsApp to ElevenLabs to Flex Relay Blueprint
 
-This repo is a blueprint for a two-way WhatsApp support relay where Twilio owns the WhatsApp sender and conversation from the first message, ElevenLabs handles the AI agent turn-by-turn, and Twilio Flex receives the same conversation when the customer needs a human.
+Conversational AI agents on messaging channels need a clean way to escalate to a human without losing the thread.
 
-It borrows the core handoff idea from the voice-oriented [twilio-elevenlabs-call-handoff-blueprint](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint): keep Twilio in control of the customer channel, pass enough runtime context to ElevenLabs, and let the ElevenLabs agent call a webhook tool when escalation is needed. The mechanics here are different because WhatsApp is an asynchronous messaging thread, not a live call.
+This repo is a working blueprint for handing an active WhatsApp conversation from an ElevenLabs Conversational AI agent to a human on Twilio Flex, without breaking the customer's thread. The tested channel is WhatsApp. SMS and webchat are on the roadmap and will slot into the same relay, because Twilio Conversations abstracts the underlying channel.
 
-## Recommended Architecture
+The design commits to Twilio owning the sender and the Conversation from the first message. The Conversation SID (`CH...`) is the shared source of truth across the AI bot turn, the human handoff, and the Flex agent's follow-up. ElevenLabs is used only as the AI runtime for text turns via its Agent WebSocket. When the agent decides a human is needed, it calls a webhook tool that asks this relay to create a Flex Interaction bound to the existing Conversation — so the Flex agent picks up the same thread rather than a copied transcript.
 
-Use a small Node.js relay service as the center of the integration:
+We deliberately do not use ElevenLabs' native WhatsApp integration. Native integration is fine for standalone bots that don't need handoff, but here we want Twilio-controlled routing to Flex with handoff context (`summary`, `intent`, `reason`, customer address, `conversationSid`, `handoffId`).
+
+The blueprint borrows the core handoff idea from the voice-oriented [twilio-elevenlabs-call-handoff-blueprint](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint). The mechanics here differ because WhatsApp is an asynchronous messaging thread, not a live call.
+
+> **Proof of concept.** This blueprint is a working reference implementation, not a production drop-in. Before using it in production, adapt routing, authentication, prompts, observability, error handling, security controls, data-retention behavior, and compliance posture to your use case.
+
+## Index
+
+- [1. Prerequisites](#1-prerequisites)
+- [2. Solution Components](#2-solution-components)
+- [3. Architecture](#3-architecture)
+- [4. Twilio Setup](#4-twilio-setup)
+- [5. ElevenLabs Setup](#5-elevenlabs-setup)
+  - [5.1 Register the tool's env vars and secret](#51-register-the-tools-env-vars-and-secret)
+  - [5.2 Attach the escalate_to_flex webhook tool](#52-attach-the-escalate_to_flex-webhook-tool)
+  - [5.3 Prompt guidance](#53-prompt-guidance)
+- [6. Running It Locally](#6-running-it-locally)
+- [7. Testing End-to-End](#7-testing-end-to-end)
+- [8. Relay Endpoints](#8-relay-endpoints)
+- [9. Payloads](#9-payloads)
+  - [9.1 Escalation Payload](#91-escalation-payload)
+  - [9.2 Flex Interaction Shape](#92-flex-interaction-shape)
+- [10. Reliability Rules](#10-reliability-rules)
+- [11. Channel Scope](#11-channel-scope)
+- [12. Conversation Modes and State Machine](#12-conversation-modes-and-state-machine)
+- [13. What's Next](#13-whats-next)
+- [14. Reference Docs](#14-reference-docs)
+
+## 1. Prerequisites
+
+**Twilio-side:**
+
+- A Twilio account.
+- A WhatsApp sender (production WhatsApp Business Account or the Twilio WhatsApp sandbox for early testing).
+- A Twilio Conversations Service (`IS...`).
+- Twilio Flex enabled in the same account, Flex UI 2.x or later.
+- The Flex TaskRouter Workspace SID (`WS...`) and Workflow SID (`WW...`) for routed WhatsApp tasks.
+
+**ElevenLabs-side:**
+
+- An ElevenLabs account with Conversational AI access.
+- An agent that supports text conversations through the Agent WebSocket.
+- An ElevenLabs API key with read/update on agents, tools, secrets, and environment variables.
+
+**Local-dev:**
+
+- Node.js `>=20`.
+- ngrok. A static domain (paid tier or claimed subdomain) is strongly recommended — otherwise you'll be updating three Twilio webhook URLs and two ElevenLabs env vars on every restart.
+
+**Shared secret you invent yourself:**
+
+- `HANDOFF_TOKEN` — the bearer token ElevenLabs uses when calling the relay's escalate endpoint. Generate one with `openssl rand -hex 32`.
+
+## 2. Solution Components
+
+Four layered pieces:
+
+- **Twilio Conversations** is the messaging layer. Every customer thread is a Conversation identified by a `CH...` SID. Twilio owns the WhatsApp sender, message delivery, and transcript. Because Conversations is channel-agnostic, the same thread can transition from WhatsApp to SMS or webchat in the future without losing continuity.
+- **ElevenLabs Agent WebSocket** is the AI runtime. The relay opens one WebSocket session per active Conversation, sends the customer's message as `user_message`, and receives an `agent_response`. The system prompt, LLM choice, tool definitions, and dynamic variables all live on the ElevenLabs side.
+- **The Node relay service (this repo)** is the orchestrator. It receives Twilio Conversations webhooks, bridges to the ElevenLabs WebSocket, writes bot replies back into the Conversation, and creates a Flex Interaction when the agent's `escalate_to_flex` tool fires. It also owns the per-Conversation state machine (`bot → human_pending → human → closed`).
+- **Twilio Flex Interactions and TaskRouter** are the human-agent destination. When escalation happens, the relay creates a Flex Interaction bound to the existing `CH...` Conversation, so the Flex agent accepts a Task that carries the same thread the bot was on — no transcript copy, no lost context. TaskRouter distributes the Task to a Flex worker via the Workspace's Workflow.
+
+## 3. Architecture
 
 ```mermaid
 sequenceDiagram
@@ -41,52 +103,7 @@ ElevenLabs is used as the AI runtime:
 - ElevenLabs `agent_response` events are written back to Twilio.
 - A webhook tool named `escalate_to_flex` asks the relay to route the existing Twilio Conversation to Flex.
 
-## Components
-
-| Component | Responsibility |
-| --- | --- |
-| `twilio-conversations` | Validate Twilio webhooks, normalize WhatsApp addresses, read/write Conversation messages, and track delivery status. |
-| `elevenlabs-session` | Open Agent WebSocket sessions, send initiation data, relay user messages, collect agent responses, and handle ping/pong/tool events. |
-| `conversation-state` | Store the mapping between customer address, business sender, Twilio Conversation SID, ElevenLabs conversation ID, mode, and escalation status. |
-| `handoff` | Receive ElevenLabs escalation tool calls, validate bearer auth, dedupe handoffs, and create Flex Interactions. |
-| `agent-control` | Stop sending customer messages to ElevenLabs after human escalation starts. |
-| `observability` | Log correlation IDs across Twilio Message SID, Conversation SID, ElevenLabs conversation ID, Flex Interaction SID, Task SID, and handoff ID. |
-
-## Conversation Modes
-
-The relay should keep a small state machine per Twilio Conversation:
-
-| Mode | Meaning | Inbound customer message behavior |
-| --- | --- | --- |
-| `bot` | ElevenLabs is actively handling the conversation. | Relay to ElevenLabs and write the bot reply back to Twilio. |
-| `human_pending` | Escalation has been requested and Flex Interaction creation is in progress. | Do not relay to ElevenLabs. Let messages remain in the Twilio Conversation. |
-| `human` | A Flex agent owns the thread. | Do not relay to ElevenLabs. |
-| `closed` | The conversation is complete. | Ignore or start a new bot session, depending on product policy. |
-
-The most important rule is simple: once escalation begins, the bot must stop replying in that Twilio Conversation.
-
-Mode transition triggers (details in [docs/architecture.md](docs/architecture.md#mode-transitions)):
-
-- `bot` → `human_pending`: validated `escalate_to_flex` tool call.
-- `human_pending` → `human`: TaskRouter `reservation.accepted` for the escalation task.
-- `human` → `closed`: TaskRouter `task.completed` or `task.canceled` for the escalation task.
-
-## Channel Scope
-
-The relay is scoped to WhatsApp today. `src/routes/twilio-conversation.js` filters `Author` — messages whose author doesn't start with `whatsapp:` (SMS bare `+E164`, chat identity strings) get a `200` no-op with no state entry or bot session opened. This lets the same Twilio Conversations Service be shared with SMS, chat, or other Flex channels without cross-talk.
-
-**Coming soon:** SMS and webchat support are on the roadmap and will land in this repo. The plan is a per-channel address parser, a `channel` field on state, channel-driven `channelType` on Flex Interaction attributes, and a `channel` dynamic variable passed into the ElevenLabs session so the agent can tune tone and length per medium. See [What's Next](#whats-next) for the outline.
-
-## Twilio Setup
-
-Account prerequisites:
-
-- A Twilio account.
-- A WhatsApp sender configured in Twilio.
-- Flex enabled in the same Twilio account.
-- Flex UI 2.x or later.
-- A Twilio Conversations Service (`IS...`).
-- The Flex TaskRouter Workspace SID (`WS...`) and Workflow SID (`WW...`) for routed WhatsApp tasks.
+## 4. Twilio Setup
 
 Three Twilio-side webhooks must point at the relay before inbound traffic works end-to-end. Set them via the console or the API — the API form (via `curl`) is shown below because it's less error-prone.
 
@@ -130,20 +147,9 @@ curl -X POST -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" \
 
 The message-status endpoint (`/webhooks/twilio/message-status`) is optional and currently expects Twilio Messaging-style status callbacks (`MessageStatus` field). Twilio Conversations' `onDeliveryUpdated` event uses `DeliveryStatus` — the route does not handle that shape today. Leave the message-status webhook unwired unless you're plumbing status callbacks in from the Messaging Service.
 
-The escalation step creates a Flex Interaction with:
+## 5. ElevenLabs Setup
 
-- `channel.type = "whatsapp"`
-- `channel.initiated_by = "customer"`
-- `channel.properties.media_channel_sid = "CH..."`
-- `routing.properties.workspace_sid = "WS..."`
-- `routing.properties.workflow_sid = "WW..."`
-- `routing.properties.attributes` containing `summary`, `intent`, `reason`, customer address, `businessAddress`, `conversationSid`, ElevenLabs conversation ID, and handoff ID.
-
-Flex then routes the task through TaskRouter and adds the accepting agent to the existing Conversation.
-
-## ElevenLabs Setup
-
-Create or choose an ElevenLabs Conversational AI agent for text conversations. If you're reusing a voice agent, either duplicate it for messaging (recommended — see note below) or make sure the messaging session initiation provides values for every dynamic variable referenced by every tool on the agent, otherwise ElevenLabs will terminate the session at start with `Missing required dynamic variables in tools`.
+Create or choose an ElevenLabs Conversational AI agent for text conversations. If you're reusing a voice agent, either duplicate it for messaging or make sure the messaging session initiation provides values for every dynamic variable referenced by every tool on the agent, otherwise ElevenLabs will terminate the session at start with `Missing required dynamic variables in tools`.
 
 The relay passes these four dynamic variables when opening the WebSocket session:
 
@@ -156,7 +162,7 @@ The relay passes these four dynamic variables when opening the WebSocket session
 }
 ```
 
-### 1. Register the tool's env vars and secret
+### 5.1 Register the tool's env vars and secret
 
 Webhook tools reference workspace-level env vars (for URL templates like `{{system__env_relay_host}}`) and secrets (for header values, referenced by `env_var_label`). Both must exist **before** you register the tool, or the tool-create call will fail with `Environment variable with label '...' not found`.
 
@@ -182,11 +188,11 @@ curl -X POST -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/
   "https://api.elevenlabs.io/v1/convai/environment-variables"
 ```
 
-### 2. Attach the escalate_to_flex webhook tool
+### 5.2 Attach the escalate_to_flex webhook tool
 
 See [examples/elevenlabs/escalate-to-flex-tool.example.json](examples/elevenlabs/escalate-to-flex-tool.example.json). The tool references `{{system__env_relay_host}}` in its URL and `env_var_label: "relay_authorization"` in its headers, so the two env vars above must exist first. You can add the tool via the ElevenLabs UI or via `PATCH /v1/convai/agents/{agent_id}`.
 
-### 3. Prompt guidance
+### 5.3 Prompt guidance
 
 The agent prompt should instruct the agent to call `escalate_to_flex` when:
 
@@ -199,7 +205,79 @@ If the agent is shared with a voice channel, add channel-routing guidance so the
 
 > Channel routing for escalation: use `escalate_to_flex` when `twilioConversationSid` is set (WhatsApp). Use `escalate_to_human` when `parent_call_sid` is set (voice). Never call both in one session.
 
-## Relay Endpoints
+## 6. Running It Locally
+
+```bash
+npm install
+cp .env.example .env
+# fill TWILIO_*, FLEX_*, ELEVENLABS_*, HANDOFF_TOKEN. HANDOFF_TOKEN is
+# a value you invent; `openssl rand -hex 32` is a good source.
+npm run dev
+```
+
+Expose port 3000 with ngrok:
+
+```bash
+ngrok http 3000
+# or with a static domain
+ngrok http --domain=<your-static-domain>.ngrok.app 3000
+```
+
+Sanity-check the process is up:
+
+```bash
+curl http://localhost:3000/health
+# {"ok":true,"service":"twilio-elevenlabs-whatsapp-flex-relay","hasTwilio":true,"hasElevenLabs":true,"hasFlex":true}
+```
+
+Then wire the ngrok URL into the three Twilio-side webhooks documented in [Twilio Setup](#4-twilio-setup) (Conversations Service post-event, WhatsApp Address Configuration, TaskRouter Event Callback) and confirm the ElevenLabs env vars from [ElevenLabs Setup](#5-elevenlabs-setup) point at the same host.
+
+If you're running behind a TLS-inspection proxy (Zscaler, Netskope, etc.) the WebSocket to `api.elevenlabs.io` will fail with `unable to get local issuer certificate`. Extract the corp CA from your keychain and export `NODE_EXTRA_CA_CERTS`:
+
+```bash
+security find-certificate -a -c "<CA-name-substring>" -p /Library/Keychains/System.keychain > /tmp/corp-ca.pem
+NODE_EXTRA_CA_CERTS=/tmp/corp-ca.pem npm run dev
+```
+
+## 7. Testing End-to-End
+
+With webhooks wired and the relay running, walk through the full loop:
+
+1. Send a message to your WhatsApp sender from your phone — anything conversational works (`hi`).
+2. Watch the relay logs — you should see the inbound webhook land, then an outbound bot reply written back to the Conversation. Your phone gets the bot's response on WhatsApp.
+3. Send another turn or two to confirm the WebSocket session survives across messages. The state file (`.data/conversation-state.json`) will show one entry with `mode: "bot"`.
+4. Ask the bot for a human — something like *"can you connect me to a human"* or *"I need to speak to someone"*.
+5. The agent should call `escalate_to_flex`. The relay logs will show the escalate webhook landing, state moving to `human_pending`, and a Flex Interaction being created.
+6. In the Flex UI, accept the incoming task. The conversation panel opens with the full history (customer messages + bot replies).
+7. When the reservation is accepted, the relay's TaskRouter event handler flips state to `human`. Subsequent customer messages no longer route to ElevenLabs.
+8. Send a message from the Flex UI as the human agent. It lands on the customer's WhatsApp thread.
+9. Wrap the Flex task. TaskRouter fires `task.completed`, the relay flips state to `closed`, and the ElevenLabs session for that Conversation is torn down.
+
+Live checks along the way:
+
+```bash
+# Per-conversation state
+cat .data/conversation-state.json | jq .
+
+# Recent HTTP through the ngrok tunnel (open http://localhost:4040 in a browser too)
+curl -s "http://localhost:4040/api/requests/http?limit=20" \
+  | jq '.requests[] | {t: .start, method: .request.method, path: .request.uri, status: .response.status_code}'
+
+# Recent ElevenLabs conversations for the agent
+curl -s -H "xi-api-key: $ELEVENLABS_API_KEY" \
+  "https://api.elevenlabs.io/v1/convai/conversations?agent_id=$ELEVENLABS_AGENT_ID&page_size=5" \
+  | jq '.conversations[] | {conversation_id, start_time_unix_secs, message_count, status}'
+```
+
+Common gotchas:
+
+- **Empty "unsupported content" messages appear in Flex UI.** A Studio Flow auto-attached to the Conversations Service is firing in parallel. See step 2 in [Twilio Setup](#4-twilio-setup) — flip the WhatsApp Address Configuration to `type: "webhook"`.
+- **ElevenLabs session terminates immediately with `Missing required dynamic variables in tools`.** The agent has tools referencing dynamic variables you're not sending. Either dedicate a messaging-only agent with just the `escalate_to_flex` tool, or add placeholder values for the missing variables to the session init.
+- **`unable to get local issuer certificate` from Node.** Corp TLS-inspection proxy (Zscaler, Netskope). Export `NODE_EXTRA_CA_CERTS` — see the note in [Running It Locally](#6-running-it-locally).
+- **Bot replies never arrive but webhooks are landing.** Check the ElevenLabs conversation status via the API. `status: "failed"` with a `terminated_reason` tells you why. Also confirm the agent's `text_only` mode is compatible with your setup.
+- **Escalate webhook returns 400.** The relay logs the specific field. Most common is a missing `businessAddress` — the relay falls back to `TWILIO_WHATSAPP_SENDER`, so double-check that env var is set.
+
+## 8. Relay Endpoints
 
 | Method | Path | Called by | Purpose |
 | --- | --- | --- | --- |
@@ -209,9 +287,11 @@ If the agent is shared with a voice channel, add channel-routing guidance so the
 | `POST` | `/webhooks/elevenlabs/escalate-to-flex` | ElevenLabs webhook tool | Create a Flex Interaction for the existing Twilio Conversation. |
 | `POST` | `/webhooks/taskrouter/events` | Twilio TaskRouter | Advance conversation state on reservation.accepted / task.completed / task.canceled. |
 
-## Escalation Payload
+## 9. Payloads
 
-ElevenLabs should call the relay with:
+### 9.1 Escalation Payload
+
+ElevenLabs calls the relay with:
 
 ```json
 {
@@ -227,7 +307,7 @@ ElevenLabs should call the relay with:
 }
 ```
 
-The relay should validate:
+The relay validates:
 
 - `Authorization: Bearer <HANDOFF_TOKEN>`.
 - Required fields present: `conversationSid`, `handoffId`, `customerAddress`, `businessAddress`, `intent`, `reason`, `summary`.
@@ -235,13 +315,11 @@ The relay should validate:
 - `customerAddress` and `businessAddress` start with `whatsapp:`.
 - The conversation exists in local state and is not already escalated.
 - `summary`, `intent`, and `reason` are short enough for TaskRouter attributes.
-- `elevenlabsConversationId` and `priority` are optional; accept and store them if present.
+- `elevenlabsConversationId` and `priority` are optional; accepted and stored if present.
 
-## Flex Interaction Shape
+### 9.2 Flex Interaction Shape
 
-The relay should create the Flex Interaction using Twilio's Flex Interactions API.
-
-Conceptual request body:
+The relay creates the Flex Interaction using Twilio's Flex Interactions API. Conceptual request body:
 
 ```json
 {
@@ -277,7 +355,7 @@ Conceptual request body:
 }
 ```
 
-## Reliability Rules
+## 10. Reliability Rules
 
 - Validate all Twilio webhooks with `X-Twilio-Signature`.
 - Validate ElevenLabs tool calls with a bearer token.
@@ -288,50 +366,32 @@ Conceptual request body:
 - Never send new customer messages to ElevenLabs after `human_pending` or `human`.
 - Store enough IDs to debug the full path: `MessageSid`, `ConversationSid`, ElevenLabs `conversation_id`, `handoffId`, Flex `InteractionSid`, and TaskRouter Task SID.
 
-## Reference Docs
+## 11. Channel Scope
 
-- Twilio Flex Conversations: https://www.twilio.com/docs/flex/developer/conversations
-- Twilio Flex Interactions API: https://www.twilio.com/docs/flex/developer/conversations/interactions-api/interactions
-- Twilio Conversations API: https://www.twilio.com/docs/conversations/api/conversation-resource
-- ElevenLabs Agent WebSocket: https://elevenlabs.io/docs/eleven-agents/api-reference/eleven-agents/websocket
-- ElevenLabs webhook tools: https://elevenlabs.io/docs/eleven-agents/customization/tools/webhook-tools
-- Reference voice blueprint: https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint
+The relay is scoped to WhatsApp today. `src/routes/twilio-conversation.js` filters `Author` — messages whose author doesn't start with `whatsapp:` (SMS bare `+E164`, chat identity strings) get a `200` no-op with no state entry or bot session opened. This lets the same Twilio Conversations Service be shared with SMS, chat, or other Flex channels without cross-talk.
 
-## Running It Locally
+**Coming soon:** SMS and webchat support are on the roadmap and will land in this repo. The plan is a per-channel address parser, a `channel` field on state, channel-driven `channelType` on Flex Interaction attributes, and a `channel` dynamic variable passed into the ElevenLabs session so the agent can tune tone and length per medium. See [What's Next](#13-whats-next) for the outline.
 
-```bash
-npm install
-cp .env.example .env
-# fill TWILIO_*, FLEX_*, ELEVENLABS_*, HANDOFF_TOKEN. HANDOFF_TOKEN is
-# a value you invent; `openssl rand -hex 32` is a good source.
-npm run dev
-```
+## 12. Conversation Modes and State Machine
 
-Expose port 3000 with ngrok:
+The relay keeps a small state machine per Twilio Conversation:
 
-```bash
-ngrok http 3000
-# or with a static domain
-ngrok http --domain=<your-static-domain>.ngrok.app 3000
-```
+| Mode | Meaning | Inbound customer message behavior |
+| --- | --- | --- |
+| `bot` | ElevenLabs is actively handling the conversation. | Relay to ElevenLabs and write the bot reply back to Twilio. |
+| `human_pending` | Escalation has been requested and Flex Interaction creation is in progress. | Do not relay to ElevenLabs. Let messages remain in the Twilio Conversation. |
+| `human` | A Flex agent owns the thread. | Do not relay to ElevenLabs. |
+| `closed` | The conversation is complete. | Ignore or start a new bot session, depending on product policy. |
 
-Sanity-check the process is up:
+The most important rule is simple: once escalation begins, the bot must stop replying in that Twilio Conversation.
 
-```bash
-curl http://localhost:3000/health
-# {"ok":true,"service":"twilio-elevenlabs-whatsapp-flex-relay","hasTwilio":true,"hasElevenLabs":true,"hasFlex":true}
-```
+Mode transition triggers (details in [docs/architecture.md](docs/architecture.md#mode-transitions)):
 
-Then wire the ngrok URL into the three Twilio-side webhooks documented in the [Twilio Setup](#twilio-setup) section (Conversations Service post-event, WhatsApp Address Configuration, TaskRouter Event Callback) and confirm the ElevenLabs env vars from the [ElevenLabs Setup](#elevenlabs-setup) section point at the same host.
+- `bot` → `human_pending`: validated `escalate_to_flex` tool call.
+- `human_pending` → `human`: TaskRouter `reservation.accepted` for the escalation task.
+- `human` → `closed`: TaskRouter `task.completed` or `task.canceled` for the escalation task.
 
-If you're running behind a TLS-inspection proxy (Zscaler, Netskope, etc.) the WebSocket to `api.elevenlabs.io` will fail with `unable to get local issuer certificate`. Extract the corp CA from your keychain and export `NODE_EXTRA_CA_CERTS`:
-
-```bash
-security find-certificate -a -c "<CA-name-substring>" -p /Library/Keychains/System.keychain > /tmp/corp-ca.pem
-NODE_EXTRA_CA_CERTS=/tmp/corp-ca.pem npm run dev
-```
-
-## What's Next
+## 13. What's Next
 
 The relay is functionally complete for WhatsApp-only bot-to-Flex routing. Reasonable hardening tracks from here:
 
@@ -340,3 +400,12 @@ The relay is functionally complete for WhatsApp-only bot-to-Flex routing. Reason
 - **Flex UI panel for handoff context.** Surface `summary`, `intent`, `reason`, and `handoffId` prominently for the agent picking up the task — task attributes are already carrying them.
 - **Session-manager hardening.** Two known follow-ups: (1) wire `session.onClose(() => sessions.delete(sid))` so a dropped WebSocket gets evicted from the pool; (2) guard the concurrent-open race so two same-conversation webhooks arriving within milliseconds don't both open a session.
 - **Message-status endpoint.** Currently expects Twilio Messaging-style `MessageStatus`. To use Conversations' `onDeliveryUpdated`, adapt the route to accept `DeliveryStatus` and expand the Post-Event webhook filter set.
+
+## 14. Reference Docs
+
+- Twilio Flex Conversations: https://www.twilio.com/docs/flex/developer/conversations
+- Twilio Flex Interactions API: https://www.twilio.com/docs/flex/developer/conversations/interactions-api/interactions
+- Twilio Conversations API: https://www.twilio.com/docs/conversations/api/conversation-resource
+- ElevenLabs Agent WebSocket: https://elevenlabs.io/docs/eleven-agents/api-reference/eleven-agents/websocket
+- ElevenLabs webhook tools: https://elevenlabs.io/docs/eleven-agents/customization/tools/webhook-tools
+- Reference voice blueprint: https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint
