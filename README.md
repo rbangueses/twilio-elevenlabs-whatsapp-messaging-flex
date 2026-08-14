@@ -199,10 +199,6 @@ If the agent is shared with a voice channel, add channel-routing guidance so the
 
 > Channel routing for escalation: use `escalate_to_flex` when `twilioConversationSid` is set (WhatsApp). Use `escalate_to_human` when `parent_call_sid` is set (voice). Never call both in one session.
 
-### Note: single-purpose messaging agent
-
-The cleanest setup is a dedicated messaging agent — one that only carries the `escalate_to_flex` tool and only lists the four messaging dynamic-variable placeholders. That removes the risk of voice tools' dynamic-variable requirements failing session start on a WhatsApp session. Clone the voice agent via `POST /v1/convai/agents/create` with the messaging tool as its only `tool_ids` entry and the four messaging placeholders in `conversation_config.agent.prompt.dynamic_variables.dynamic_variable_placeholders`.
-
 ## Relay Endpoints
 
 | Method | Path | Called by | Purpose |
