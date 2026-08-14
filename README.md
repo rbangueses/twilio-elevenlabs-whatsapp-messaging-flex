@@ -340,4 +340,3 @@ The relay is functionally complete for WhatsApp-only bot-to-Flex routing. Reason
 - **Flex UI panel for handoff context.** Surface `summary`, `intent`, `reason`, and `handoffId` prominently for the agent picking up the task — task attributes are already carrying them.
 - **Session-manager hardening.** Two known follow-ups: (1) wire `session.onClose(() => sessions.delete(sid))` so a dropped WebSocket gets evicted from the pool; (2) guard the concurrent-open race so two same-conversation webhooks arriving within milliseconds don't both open a session.
 - **Message-status endpoint.** Currently expects Twilio Messaging-style `MessageStatus`. To use Conversations' `onDeliveryUpdated`, adapt the route to accept `DeliveryStatus` and expand the Post-Event webhook filter set.
-- **Metrics / traces.** Handoff rate, bot response latency, Flex Interaction creation failures, and duplicate-event counters are the useful signals to expose to Prometheus/Datadog.
