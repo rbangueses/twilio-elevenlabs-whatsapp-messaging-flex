@@ -49,7 +49,11 @@ export function createConversationRoute({
     const state = await store.upsert(conversationSid, (prev) => ({
       conversationSid,
       customerAddress: body.Author,
-      businessAddress: body.ProxyAddress ?? prev?.businessAddress ?? '',
+      // onMessageAdded doesn't include ProxyAddress; fall back to the
+      // configured WhatsApp sender. `||` (not `??`) so a cached empty
+      // string doesn't block the fallback.
+      businessAddress:
+        body.ProxyAddress || prev?.businessAddress || config.twilio?.whatsappSender || '',
       mode: prev?.mode ?? 'bot',
       elevenlabsConversationId: prev?.elevenlabsConversationId ?? null,
       elevenlabsSessionStatus: prev?.elevenlabsSessionStatus ?? 'idle',
