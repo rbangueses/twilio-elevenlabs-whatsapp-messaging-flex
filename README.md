@@ -12,6 +12,8 @@ The blueprint borrows the core handoff idea from the voice-oriented [twilio-elev
 
 > **Proof of concept.** This blueprint is a working reference implementation, not a production drop-in. Before using it in production, adapt routing, authentication, prompts, observability, error handling, security controls, data-retention behavior, and compliance posture to your use case.
 
+![Architecture: Twilio Conversations sits at the center as the source-of-truth message layer. The relay service bridges Twilio Conversations to ElevenLabs over a WebSocket for bot turns, calls the Flex Interactions API to escalate, and reacts to TaskRouter events. Flex agents join the same Conversation the bot was on.](media/diagram.png)
+
 ## Index
 
 - [1. Prerequisites](#1-prerequisites)
@@ -70,23 +72,42 @@ Four layered pieces:
 
 ## 3. Architecture
 
+The static component view is in the diagram above. The sequence below shows the temporal flow of a typical conversation — bot turns, escalation, and human takeover — with the state machine transitions annotated.
+
 ```mermaid
 sequenceDiagram
   participant User as WhatsApp user
-  participant Twilio as Twilio WhatsApp + Conversations
-  participant Relay as Node relay service
-  participant Eleven as ElevenLabs Agent WebSocket
-  participant Flex as Twilio Flex Conversations
+  participant Twilio as Twilio Conversations
+  participant Relay as Relay & state machine
+  participant Eleven as ElevenLabs Agent
+  participant Flex as Flex + TaskRouter
 
-  User->>Twilio: Sends WhatsApp message
-  Twilio->>Relay: Conversation webhook
-  Relay->>Relay: Validate signature and load state
-  Relay->>Eleven: Send user_message
-  Eleven->>Relay: Return agent_response
-  Relay->>Twilio: Add bot reply to same Conversation
-  Eleven->>Relay: Call escalate_to_flex tool
-  Relay->>Flex: Create Interaction bound to Conversation
-  Flex->>Twilio: Agent joins same WhatsApp thread
+  User->>Twilio: WhatsApp message
+  Twilio->>Relay: Conversations webhook (onMessageAdded)
+  Note over Relay: state[CH...] = { mode: bot }
+  Relay->>Eleven: WS: user_message (opens session on first turn)
+  Eleven-->>Relay: WS: agent_response
+  Relay->>Twilio: REST: write bot reply to CH...
+  Twilio-->>User: WhatsApp: bot reply
+
+  Note over User,Relay: additional turns reuse the same WebSocket
+
+  Eleven->>Relay: HTTP: escalate_to_flex webhook
+  Note over Relay: mode: bot -> human_pending
+  Relay->>Flex: REST: create Interaction bound to CH...
+  Relay->>Eleven: WS close (bot done)
+  Flex-->>Relay: TaskRouter event: reservation.accepted
+  Note over Relay: mode: human_pending -> human
+
+  User->>Twilio: WhatsApp message (post-escalation)
+  Twilio->>Relay: Conversations webhook
+  Note over Relay: mode = human, 200 no-op
+
+  Flex->>Twilio: Agent writes to CH...
+  Twilio-->>User: WhatsApp: agent reply
+
+  Flex-->>Relay: TaskRouter event: task.completed
+  Note over Relay: mode: human -> closed
 ```
 
 Twilio remains the source of truth for:
