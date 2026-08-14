@@ -41,12 +41,6 @@ ElevenLabs is used as the AI runtime:
 - ElevenLabs `agent_response` events are written back to Twilio.
 - A webhook tool named `escalate_to_flex` asks the relay to route the existing Twilio Conversation to Flex.
 
-## Why A Node Service Instead Of Twilio Functions Only?
-
-Twilio Functions are useful for thin webhooks, health checks, and small helper endpoints, but the relay core needs to manage WebSocket sessions, tool callbacks, idempotency, and conversation state. A long-running Node service is a better fit for that lifecycle.
-
-A Functions-only proof of concept can be built by opening a fresh ElevenLabs WebSocket on every inbound message, sending recent Twilio Conversation history plus the new user turn, waiting for one answer, then exiting. This repo treats that as a constrained demo path, not the recommended architecture.
-
 ## Components
 
 | Component | Responsibility |
