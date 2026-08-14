@@ -4,7 +4,7 @@ Conversational AI agents on messaging channels need a clean way to escalate to a
 
 This repo is a working blueprint for handing an active WhatsApp conversation from an ElevenLabs Conversational AI agent to a human on Twilio Flex, without breaking the customer's thread. The tested channel is WhatsApp. SMS and webchat are on the roadmap and will slot into the same relay, because Twilio Conversations abstracts the underlying channel.
 
-The design commits to Twilio owning the sender and the Conversation from the first message. The Conversation SID (`CH...`) is the shared source of truth across the AI bot turn, the human handoff, and the Flex agent's follow-up. ElevenLabs is used only as the AI runtime for text turns via its Agent WebSocket. When the agent decides a human is needed, it calls a webhook tool that asks this relay to create a Flex Interaction bound to the existing Conversation — so the Flex agent picks up the same thread rather than a copied transcript.
+The design commits to Twilio owning the sender and the Conversation from the first message. The Conversation SID (`CH...`) is the shared source of truth across the AI bot turn, the human handoff, and the Flex agent's follow-up. ElevenLabs is used only as the AI runtime for text turns via its Agent WebSocket. When the agent decides a human is needed, it calls a webhook tool that asks the relay to create a Flex Interaction bound to the existing Conversation; Twilio TaskRouter then routes the resulting task to a Flex agent, who joins the same thread rather than receiving a copied transcript.
 
 We deliberately do not use ElevenLabs' native WhatsApp integration. Native integration is fine for standalone bots that don't need handoff, but here we want Twilio-controlled routing to Flex with handoff context (`summary`, `intent`, `reason`, customer address, `conversationSid`, `handoffId`).
 
@@ -13,6 +13,8 @@ The blueprint borrows the core handoff idea from the voice-oriented [twilio-elev
 > **Proof of concept.** This blueprint is a working reference implementation, not a production drop-in. Before using it in production, adapt routing, authentication, prompts, observability, error handling, security controls, data-retention behavior, and compliance posture to your use case.
 
 ![Architecture: Twilio Conversations sits at the center as the source-of-truth message layer. The relay service bridges Twilio Conversations to ElevenLabs over a WebSocket for bot turns, calls the Flex Interactions API to escalate, and reacts to TaskRouter events. Flex agents join the same Conversation the bot was on.](media/diagram.png)
+
+*Blue: what fires on every customer message (WhatsApp ↔ Twilio ↔ relay webhook). Orange: the bot's runtime, plus the escalation HTTP call from ElevenLabs and the resulting Flex Interaction. Green: the human agent's flow after they accept the Flex task — writing back into the same Conversation, plus the TaskRouter events that move the relay's state machine forward.*
 
 ## Index
 
