@@ -380,12 +380,12 @@ The relay creates the Flex Interaction using Twilio's Flex Interactions API. Con
 
 ## 10. Reliability Rules
 
+Invariants the relay enforces today. Every bullet here is backed by code and tests — treat them as guardrails not to break in a refactor.
+
 - Validate all Twilio webhooks with `X-Twilio-Signature`.
-- Validate ElevenLabs tool calls with a bearer token.
-- Use an idempotency key for every Twilio event and handoff request.
-- Return quickly to Twilio webhooks, and move slower work into the relay queue/worker loop.
-- Retry Twilio and ElevenLabs API failures with exponential backoff and jitter.
-- Persist the mode switch to `human_pending` before creating the Flex Interaction.
+- Validate ElevenLabs tool calls with a bearer token; fail closed if the token is empty or missing.
+- Use an idempotency key for every Twilio event and handoff request (`MessageSid`, `EventSid`, `handoffId`).
+- Persist the mode switch to `human_pending` before creating the Flex Interaction, and gate the transition atomically so two racing escalate calls cannot both create Flex Interactions for the same conversation.
 - Never send new customer messages to ElevenLabs after `human_pending` or `human`.
 - Store enough IDs to debug the full path: `MessageSid`, `ConversationSid`, ElevenLabs `conversation_id`, `handoffId`, Flex `InteractionSid`, and TaskRouter Task SID.
 
@@ -418,6 +418,8 @@ Mode transition triggers (details in [docs/architecture.md](docs/architecture.md
 
 The relay is functionally complete for WhatsApp-only bot-to-Flex routing. Reasonable hardening tracks from here:
 
+- **Move bot handling off the webhook thread.** Today the conversation route does the full inbound flow synchronously — Twilio API calls, ElevenLabs WebSocket handshake if needed, up to 20 seconds waiting for the agent reply, and the outbound bot-message write — all while Twilio's inbound webhook is still open. That can exceed Twilio's ~15s webhook budget on slow turns. Push the ElevenLabs round-trip and bot-reply write into a background worker; return 200 to Twilio immediately after persisting the message on state.
+- **Retry outbound API calls with exponential backoff and jitter.** Twilio Conversations writes, ElevenLabs WebSocket sends, and Flex Interactions creation all `await` bare today — a brief upstream blip becomes a hard failure for that customer's message or that handoff. Add retry with jitter (a few attempts spaced ~100 ms → 500 ms → 2 s) around `writeBotMessage`, `sendUserMessage`, and `createInteraction`. The idempotency keys already in place make duplicate retries safe.
 - **Multi-channel support (SMS, chat, RCS).** Replace the `whatsapp:` Author filter in `src/routes/twilio-conversation.js` with a per-channel `parseAddress`, record `channel` on state, drive `channelType` on the Flex Interaction attributes from that state field, and pass `channel` into the ElevenLabs session so the agent can adjust tone/length per medium.
 - **Production storage adapter.** Swap `src/state/file-store.js` for Redis or Postgres behind the same `Store` interface — the `transitionMode` contract is already there; the file store's global write mutex + per-key locks translate cleanly to WATCH/MULTI (Redis) or `SELECT … FOR UPDATE` (Postgres).
 - **Flex UI panel for handoff context.** Surface `summary`, `intent`, `reason`, and `handoffId` prominently for the agent picking up the task — task attributes are already carrying them.
