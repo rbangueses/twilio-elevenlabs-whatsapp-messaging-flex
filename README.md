@@ -14,6 +14,8 @@ We deliberately do not use ElevenLabs' native WhatsApp integration. Native integ
 
 The blueprint borrows the core handoff idea from the voice-oriented [twilio-elevenlabs-call-handoff-blueprint](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint). The mechanics here differ because WhatsApp is an asynchronous messaging thread, not a live call.
 
+Paired with the voice blueprint, a single WhatsApp business number can serve both text and voice on the same sender identity. Twilio's [WhatsApp Business Calling](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint#22-whatsapp-business-calling-entry-point) routes inbound voice calls — the customer taps "call" on your WhatsApp business profile — into the voice blueprint, which hands off to Flex the same way this repo does for messages. Conversation Memory (§8) links both interactions to one customer Profile, so an agent joining a voice call today can see the WhatsApp thread from yesterday, and vice versa. It's the shape of a fully Twilio-led AI-plus-human experience across both channels of a single WhatsApp presence.
+
 > **Proof of concept.** This blueprint is a working reference implementation, not a production drop-in. Before using it in production, adapt routing, authentication, prompts, observability, error handling, security controls, data-retention behavior, and compliance posture to your use case.
 
 ## Index
