@@ -1,5 +1,7 @@
 # Twilio WhatsApp to ElevenLabs to Flex Relay Blueprint
 
+For a high-level introduction, see [overview.html](overview.html).
+
 Conversational AI agents on messaging channels need a clean way to escalate to a human without losing the thread.
 
 This repo is a working blueprint for handing an active WhatsApp conversation from an ElevenLabs Conversational AI agent to a human on Twilio Flex, without breaking the customer's thread. The tested channel is WhatsApp. SMS and webchat are on the roadmap and will slot into the same relay, because Twilio Conversations abstracts the underlying channel.

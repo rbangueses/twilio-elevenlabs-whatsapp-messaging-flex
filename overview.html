@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Twilio WhatsApp to ElevenLabs to Flex Relay Blueprint</title>
+    <meta
+      name="description"
+      content="A Twilio-owned blueprint for handing an active WhatsApp conversation from an ElevenLabs AI agent to a human on Twilio Flex without losing the thread."
+    >
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #172033;
+        --muted: #5d667a;
+        --soft: #f5f7fb;
+        --panel: #ffffff;
+        --line: #d9deea;
+        --twilio: #f22f46;
+        --eleven: #111827;
+        --studio: #3f7ee8;
+        --task: #0f9b7a;
+        --memory: #8657d9;
+        --shadow: 0 18px 42px rgba(23, 32, 51, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: #fbfcff;
+        line-height: 1.5;
+      }
+
+      a {
+        color: #165bd8;
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .page {
+        min-height: 100vh;
+      }
+
+      .shell {
+        width: min(1120px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .hero {
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(135deg, rgba(242, 47, 70, 0.09), transparent 34%),
+          linear-gradient(145deg, #ffffff 0%, #f4f8ff 100%);
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        min-height: 76px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-weight: 760;
+        letter-spacing: 0;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 8px;
+        color: #ffffff;
+        background: var(--twilio);
+        font-size: 18px;
+        font-weight: 800;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        font-size: 14px;
+        color: var(--muted);
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr);
+        gap: 48px;
+        align-items: center;
+        padding: 62px 0 72px;
+      }
+
+      .eyebrow {
+        margin: 0 0 14px;
+        color: var(--twilio);
+        font-size: 13px;
+        font-weight: 760;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin: 0;
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        max-width: 780px;
+        font-size: clamp(42px, 7vw, 74px);
+      }
+
+      h2 {
+        font-size: clamp(28px, 4vw, 42px);
+      }
+
+      h3 {
+        font-size: 19px;
+      }
+
+      p {
+        margin: 0;
+      }
+
+      .hero-copy {
+        max-width: 710px;
+        margin-top: 22px;
+        color: var(--muted);
+        font-size: 19px;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 30px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        color: var(--ink);
+        background: #ffffff;
+        font-weight: 720;
+        box-shadow: 0 3px 10px rgba(23, 32, 51, 0.06);
+      }
+
+      .button.primary {
+        border-color: var(--twilio);
+        color: #ffffff;
+        background: var(--twilio);
+      }
+
+      .hero-panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.86);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 18px;
+        color: var(--muted);
+        border-bottom: 1px solid var(--line);
+        font-size: 14px;
+      }
+
+      .panel-head strong {
+        color: var(--ink);
+      }
+
+      .panel-body {
+        padding: 18px;
+      }
+
+      .mini-diagram {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      section {
+        padding: 72px 0;
+      }
+
+      .section-lead {
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .split {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(340px, 1.1fr);
+        gap: 44px;
+        align-items: start;
+      }
+
+      .body-copy {
+        display: grid;
+        gap: 16px;
+        color: var(--muted);
+        font-size: 17px;
+      }
+
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 34px;
+      }
+
+      .card {
+        min-height: 220px;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: 0 10px 24px rgba(23, 32, 51, 0.06);
+      }
+
+      .card p,
+      .flow-card p {
+        margin-top: 12px;
+        color: var(--muted);
+      }
+
+      .note-callout {
+        margin-top: 28px;
+        padding: 20px 22px;
+        border: 1px solid #f3c5cc;
+        border-left: 5px solid var(--twilio);
+        border-radius: 8px;
+        color: var(--muted);
+        background: #fff7f8;
+        font-size: 16px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        margin-bottom: 16px;
+        padding: 5px 9px;
+        border-radius: 999px;
+        color: var(--twilio);
+        background: #fff0f2;
+        font-size: 12px;
+        font-weight: 780;
+        letter-spacing: 0.02em;
+      }
+
+      .badge.blue {
+        color: var(--studio);
+        background: #edf4ff;
+      }
+
+      .badge.teal {
+        color: var(--task);
+        background: #eafaf5;
+      }
+
+      .card-token {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 34px;
+        height: 34px;
+        margin-bottom: 18px;
+        border-radius: 8px;
+        color: #ffffff;
+        font-weight: 800;
+      }
+
+      .card-token.twilio {
+        background: var(--twilio);
+      }
+
+      .card-token.studio {
+        background: var(--studio);
+      }
+
+      .card-token.task {
+        background: var(--task);
+      }
+
+      .flow-wrap {
+        margin-top: 34px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .flow-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 18px 22px;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .flow-diagram {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+        padding: 24px;
+      }
+
+      .node {
+        position: relative;
+        min-height: 112px;
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-top: 5px solid var(--twilio);
+        border-radius: 8px;
+        background: #fbfcff;
+      }
+
+      .node.eleven {
+        border-top-color: var(--eleven);
+      }
+
+      .node.studio {
+        border-top-color: var(--studio);
+      }
+
+      .node.task {
+        border-top-color: var(--task);
+      }
+
+      .node.memory {
+        border-top-color: var(--memory);
+      }
+
+      .node strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .node span {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .node:not(:last-child)::after {
+        content: "";
+        position: absolute;
+        top: 52px;
+        right: -18px;
+        width: 20px;
+        height: 2px;
+        background: var(--line);
+      }
+
+      .paths {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+        margin-top: 24px;
+      }
+
+      .entry-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 24px;
+      }
+
+      .entry-card {
+        padding: 18px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .entry-card strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .entry-card span {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .flow-card {
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      .route {
+        display: grid;
+        gap: 10px;
+        margin-top: 18px;
+        padding: 0;
+        list-style: none;
+      }
+
+      .route li {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+      }
+
+      .route-command {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .entry-card code,
+      .route code,
+      .inline-code {
+        padding: 2px 5px;
+        border-radius: 5px;
+        background: #eef2f8;
+        color: #26334f;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.92em;
+      }
+
+      .footer {
+        padding: 26px 0;
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        background: #ffffff;
+        font-size: 14px;
+      }
+
+      @media (max-width: 920px) {
+        .hero-grid,
+        .split {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-grid,
+        .split {
+          display: grid;
+        }
+
+        .cards,
+        .paths,
+        .entry-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .flow-diagram {
+          grid-template-columns: 1fr;
+        }
+
+        .node:not(:last-child)::after {
+          top: auto;
+          right: auto;
+          bottom: -18px;
+          left: 26px;
+          width: 2px;
+          height: 20px;
+        }
+      }
+
+      @media (max-width: 620px) {
+        .shell {
+          width: min(100% - 28px, 1120px);
+        }
+
+        .nav {
+          align-items: flex-start;
+          flex-direction: column;
+          padding: 18px 0;
+        }
+
+        .nav-links {
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+
+        .hero-grid {
+          padding: 38px 0 52px;
+        }
+
+        section {
+          padding: 52px 0;
+        }
+
+        .cards,
+        .paths,
+        .entry-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .card {
+          min-height: auto;
+        }
+
+        .flow-title {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div class="shell">
+          <nav class="nav" aria-label="Main navigation">
+            <div class="brand">
+              <span class="brand-mark">T</span>
+              <span>Twilio + ElevenLabs Blueprint</span>
+            </div>
+            <div class="nav-links">
+              <a href="#what-it-is">What it is</a>
+              <a href="#why-useful">Why it is useful</a>
+              <a href="#how-it-works">How it works</a>
+              <a href="#optional-capabilities">Optional capabilities</a>
+              <a href="#next">Next steps</a>
+            </div>
+          </nav>
+
+          <div class="hero-grid">
+            <div>
+              <p class="eyebrow">High Level Overview</p>
+              <h1>Twilio WhatsApp to ElevenLabs to Flex Relay Blueprint</h1>
+              <p class="hero-copy">
+                A working pattern for handing an active WhatsApp conversation
+                from an ElevenLabs AI agent to a human on Twilio Flex —
+                without losing the thread, the transcript, or the customer's
+                place in the story.
+              </p>
+              <div class="actions">
+                <a class="button primary" href="https://github.com/rbangueses/twilio-elevenlabs-whatsapp-messaging-flex">Open GitHub Repo</a>
+              </div>
+            </div>
+
+            <aside class="hero-panel" aria-label="High-level blueprint diagram">
+              <div class="panel-head">
+                <span><strong>Core idea:</strong> one Conversation, bot and human share it</span>
+                <span>Messaging + AI + human handoff</span>
+              </div>
+              <div class="panel-body">
+                <svg class="mini-diagram" viewBox="0 0 720 520" role="img" aria-label="High-level WhatsApp bot-to-human flow">
+                  <defs>
+                    <marker id="hero-arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+                      <path d="M2,2 L10,6 L2,10 Z" fill="#5d667a" />
+                    </marker>
+                    <style>
+                      .hero-node { fill: #fff; stroke: #d9deea; stroke-width: 2; }
+                      .hero-twilio { fill: #fff7f8; stroke: #f22f46; stroke-width: 2.5; }
+                      .hero-eleven { fill: #f4f5f8; stroke: #111827; stroke-width: 2.5; }
+                      .hero-route { fill: #ecfdf7; stroke: #0f9b7a; stroke-width: 2.5; }
+                      .hero-label { fill: #172033; font: 700 18px system-ui, sans-serif; }
+                      .hero-small { fill: #5d667a; font: 500 13px system-ui, sans-serif; }
+                      .hero-line { fill: none; stroke: #5d667a; stroke-width: 2.2; marker-end: url(#hero-arrow); }
+                      .hero-dash { fill: none; stroke: #5d667a; stroke-width: 2.2; stroke-dasharray: 8 8; marker-end: url(#hero-arrow); }
+                    </style>
+                  </defs>
+
+                  <rect x="58" y="55" width="200" height="96" rx="8" class="hero-twilio" />
+                  <text x="158" y="91" text-anchor="middle" class="hero-label">Twilio Conversation</text>
+                  <text x="158" y="118" text-anchor="middle" class="hero-small">CH… owns the thread</text>
+
+                  <rect x="420" y="55" width="220" height="96" rx="8" class="hero-eleven" />
+                  <text x="530" y="91" text-anchor="middle" class="hero-label">ElevenLabs Agent</text>
+                  <text x="530" y="118" text-anchor="middle" class="hero-small">bot turns via WebSocket</text>
+
+                  <rect x="250" y="235" width="220" height="112" rx="8" class="hero-twilio" />
+                  <text x="360" y="273" text-anchor="middle" class="hero-label">Flex Interaction</text>
+                  <text x="360" y="300" text-anchor="middle" class="hero-small">bound to same CH…</text>
+                  <text x="360" y="323" text-anchor="middle" class="hero-small">TaskRouter routes to human</text>
+
+                  <rect x="270" y="410" width="180" height="80" rx="8" class="hero-route" />
+                  <text x="360" y="443" text-anchor="middle" class="hero-label">Flex Agent</text>
+                  <text x="360" y="468" text-anchor="middle" class="hero-small">joins same thread</text>
+
+                  <path d="M258 103 H410" class="hero-line" />
+                  <path d="M530 151 C530 210 470 224 434 247" class="hero-dash" />
+                  <path d="M360 347 V398" class="hero-line" />
+                </svg>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="what-section" id="what-it-is">
+          <div class="shell">
+            <p class="eyebrow">What it is</p>
+            <h2>A bot-to-human handoff pattern for WhatsApp, not a chatbot demo.</h2>
+            <p class="section-lead">
+              The blueprint connects a Twilio-owned WhatsApp Conversation to an
+              ElevenLabs Conversational AI agent, passes the Conversation SID
+              into the agent session, and gives the agent a webhook tool that
+              creates a Flex Interaction bound to the same Conversation when
+              escalation is needed. The customer keeps typing to the same
+              number — Twilio just quietly replaces the AI with a human.
+            </p>
+
+            <div class="cards">
+              <article class="card">
+                <span class="badge">Containment</span>
+                <h3>Let AI try first</h3>
+                <p>
+                  ElevenLabs handles the customer's turns through its Agent
+                  WebSocket and delivers text replies back into the same
+                  Twilio Conversation. Twilio owns the WhatsApp sender the
+                  whole time.
+                </p>
+              </article>
+              <article class="card">
+                <span class="badge blue">Control</span>
+                <h3>Keep the thread in Twilio</h3>
+                <p>
+                  One Conversation SID (<span class="inline-code">CH...</span>)
+                  holds every message — bot's and human's — across the whole
+                  interaction. Flex agents join the same thread rather than a
+                  copied transcript.
+                </p>
+              </article>
+              <article class="card">
+                <span class="badge teal">Context</span>
+                <h3>Carry the handoff summary</h3>
+                <p>
+                  On escalation, the ElevenLabs agent sends summary, intent,
+                  reason, customer address, and a handoff ID to the relay,
+                  which surfaces them as TaskRouter task attributes for the
+                  Flex agent.
+                </p>
+              </article>
+            </div>
+
+            <p class="note-callout">
+              This blueprint is a proof-of-concept reference implementation,
+              not a production drop-in. Treat it as a starting point for the
+              architecture and adapt routing, authentication, prompts,
+              observability, security, and compliance controls to your use
+              case.
+            </p>
+          </div>
+        </section>
+
+        <section id="why-useful" style="background: var(--soft);">
+          <div class="shell">
+            <p class="eyebrow">Why it is useful</p>
+            <h2>Bot-to-human transition without breaking the thread.</h2>
+            <p class="section-lead">
+              Bolting an AI on top of a WhatsApp support number is easy.
+              Making it hand off cleanly to a human when it can't cope — and
+              doing that on the same WhatsApp thread the customer's been
+              typing in — is where most integrations stumble. This blueprint
+              solves that specific hand-off.
+            </p>
+
+            <div class="cards">
+              <article class="card">
+                <span class="card-token twilio">1</span>
+                <h3>Preserve the customer thread</h3>
+                <p>
+                  The Twilio Conversation (<span class="inline-code">CH...</span>)
+                  survives the transition. Bot replies and human replies are
+                  siblings in the same thread — the customer never sees a
+                  reset.
+                </p>
+              </article>
+              <article class="card">
+                <span class="card-token studio">2</span>
+                <h3>Pass useful context</h3>
+                <p>
+                  The Flex agent picking up the task sees the transcript plus
+                  a concise summary, intent, and reason produced by the AI on
+                  its way out.
+                </p>
+              </article>
+              <article class="card">
+                <span class="card-token task">3</span>
+                <h3>Route with Flex</h3>
+                <p>
+                  Flex Interactions plus TaskRouter route the escalated task
+                  to a human worker, with the Conversation attached — the
+                  same tools Flex already uses for human-only channels.
+                </p>
+              </article>
+            </div>
+
+            <p class="note-callout">
+              Extension point: keep the escalation payload's Flex task
+              attributes short. For larger context, store the full transcript
+              or knowledge lookup externally and pass a compact identifier
+              such as <span class="inline-code">handoffId</span> or
+              <span class="inline-code">conversationSid</span> so the Flex
+              agent's tooling can fetch the details on demand.
+            </p>
+          </div>
+        </section>
+
+        <section id="how-it-works">
+          <div class="shell">
+            <p class="eyebrow">How it works</p>
+            <h2>Twilio Conversations at the center. Relay in the middle. ElevenLabs and Flex at the edges.</h2>
+            <p class="section-lead">
+              A small Node relay service listens for Twilio Conversation
+              webhooks, bridges bot turns to ElevenLabs over a WebSocket, and
+              creates a Flex Interaction when the agent invokes the
+              <span class="inline-code">escalate_to_flex</span> tool.
+              TaskRouter events flow back to the relay so its state machine
+              advances as the human agent picks up and later wraps the task.
+            </p>
+
+            <div class="flow-wrap">
+              <div class="flow-title">
+                <span>Runtime loop</span>
+                <span>Conversations + WebSocket + Flex Interactions API</span>
+              </div>
+              <div class="flow-diagram" aria-label="High-level relay flow diagram">
+                <div class="node">
+                  <strong>WhatsApp customer</strong>
+                  <span>Messages your Twilio WhatsApp sender.</span>
+                </div>
+                <div class="node eleven">
+                  <strong>ElevenLabs agent</strong>
+                  <span>Relay bridges the customer turn as user_message.</span>
+                </div>
+                <div class="node studio">
+                  <strong>Escalation tool</strong>
+                  <span>Agent asks the relay to create a Flex Interaction.</span>
+                </div>
+                <div class="node task">
+                  <strong>Flex + TaskRouter</strong>
+                  <span>Task routed to a human, who joins the same Conversation.</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="entry-grid" aria-label="Relay endpoints">
+              <article class="entry-card">
+                <strong>Inbound message</strong>
+                <span>
+                  Twilio Conversations post-event webhook →
+                  <code>/webhooks/twilio/conversation</code>. The relay
+                  bridges the customer's turn to ElevenLabs and writes the
+                  bot reply back into the same Conversation.
+                </span>
+              </article>
+              <article class="entry-card">
+                <strong>Escalation</strong>
+                <span>
+                  ElevenLabs webhook tool →
+                  <code>/webhooks/elevenlabs/escalate-to-flex</code>. The
+                  relay creates a Flex Interaction bound to the existing
+                  <code>CH...</code> SID.
+                </span>
+              </article>
+              <article class="entry-card">
+                <strong>TaskRouter events</strong>
+                <span>
+                  Workspace Event Callback →
+                  <code>/webhooks/taskrouter/events</code>. Advances the
+                  state machine through <code>human_pending</code> →
+                  <code>human</code> → <code>closed</code>.
+                </span>
+              </article>
+            </div>
+
+            <p class="note-callout">
+              The relay is scoped to WhatsApp today. Twilio Conversations is
+              channel-agnostic, so SMS and webchat are on the roadmap and
+              will slot in behind a per-channel address parser without
+              changing the Flex handoff path.
+            </p>
+          </div>
+        </section>
+
+        <section id="optional-capabilities" style="background: var(--soft);">
+          <div class="shell">
+            <p class="eyebrow">Optional capabilities</p>
+            <h2>Memory and cross-channel voice compose cleanly on top.</h2>
+            <p class="section-lead">
+              The core relay is scoped to bot-to-Flex on WhatsApp. Once
+              that's working, three add-ons layer on without changing the
+              runtime path — each documented in the README.
+            </p>
+
+            <div class="cards">
+              <article class="card">
+                <span class="badge">Memory</span>
+                <h3>Twilio Conversation Memory</h3>
+                <p>
+                  The messaging agent can call a recall tool at the start of
+                  a conversation to pull the customer's Profile, including
+                  facts extracted from previous voice calls if the same
+                  customer's identifiers link to the same Profile.
+                </p>
+              </article>
+              <article class="card">
+                <span class="badge blue">Voice pairing</span>
+                <h3>WhatsApp Business Calling</h3>
+                <p>
+                  Paired with the voice blueprint, a single WhatsApp business
+                  number handles both text and voice on the same sender
+                  identity. Memory links the two channels for context
+                  continuity across the customer's calls and messages.
+                </p>
+              </article>
+              <article class="card">
+                <span class="badge teal">Roadmap</span>
+                <h3>Multi-channel</h3>
+                <p>
+                  Twilio Conversations is channel-agnostic, so SMS and
+                  webchat will slot into the same relay with a per-channel
+                  address parser and a channel-aware Flex Interaction shape.
+                </p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="next-step" id="next">
+          <div class="shell">
+            <p class="eyebrow">Next steps</p>
+            <h2>Read the README when you are ready to build.</h2>
+            <p class="section-lead">
+              The repository README is the implementation guide. It walks
+              through prerequisites, Twilio and ElevenLabs setup, the exact
+              webhook URLs to configure, running the relay locally, and an
+              end-to-end testing walkthrough with common gotchas.
+            </p>
+
+            <div class="actions">
+              <a class="button primary" href="https://github.com/rbangueses/twilio-elevenlabs-whatsapp-messaging-flex">Open GitHub Repo</a>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="shell">
+          Proof-of-concept blueprint. Adapt security, routing, observability,
+          data retention, and compliance controls before production use.
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
