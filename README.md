@@ -313,14 +313,14 @@ Twilio's [Conversation Memory](https://www.twilio.com/docs/conversations/memory)
 
 ### 8.2 How identity resolves
 
-Conversation Memory recognizes four channel identifiers out of the box, each normalized in a specific way:
+Per Twilio's [Identity Resolution docs](https://www.twilio.com/docs/conversations/memory/identity-resolution) (see the Default Identity Rules table), Conversation Memory recognizes four channel identifiers out of the box, each normalized in a specific way:
 
 - **`email`** — Email channel, lowercased.
 - **`whatsapp`** — auto-mapped from Twilio WhatsApp traffic.
 - **`phone`** — Voice, SMS, RCS, MMS. Normalized to E.164.
 - **`chat`** — Chat channel, trimmed.
 
-Custom identifiers such as `user_id` are supported via [Custom Identity Rules](https://www.twilio.com/docs/conversations/memory/identity-resolution). WhatsApp is a **distinct identifier** from phone — two separate keys on the same Profile that Identity Resolution links together, not the same key with a prefix.
+Custom identifiers such as `user_id` are supported via Custom Identity Rules on the same page. WhatsApp is a **distinct identifier** from phone — two separate keys on the same Profile that Identity Resolution links together, not the same key with a prefix.
 
 Identity Resolution matches identifiers in priority order (`user_id` > `email`/`whatsapp` > `phone` > `chat`). Twilio recommends **uploading customer Profiles up front** rather than relying on automated matching during conversations, so identifiers from every channel resolve to the same Profile from day one.
 
