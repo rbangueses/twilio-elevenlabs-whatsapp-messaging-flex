@@ -342,10 +342,6 @@ Add one line to the agent's system prompt:
 
 > At the start of every conversation, call the memory recall tool with the customer's identifier. If it returns useful context, weave it into your first reply naturally. If it returns nothing, greet the customer without referencing memory.
 
-### 8.5 Passive capture
-
-Once Conversation Memory is set up for recall, passive capture is the same product's other half. Traits (structured customer attributes) and Observations (per-conversation facts) are extracted from completed conversations and stored automatically against the resolved Profile — no additional integration on the relay side. Configure Traits and Observations per [Twilio's docs](https://www.twilio.com/docs/conversations/memory).
-
 ## 9. Relay Endpoints
 
 | Method | Path | Called by | Purpose |
