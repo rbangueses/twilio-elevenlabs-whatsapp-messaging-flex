@@ -311,15 +311,24 @@ The voice blueprint at [twilio-elevenlabs-call-handoff-blueprint](https://github
 - **Cross-channel context.** If the customer called yesterday and messages today, the messaging bot can reference the previous voice interaction.
 - **Faster resolution.** The agent doesn't re-ask questions the customer has already answered on another channel.
 
-### 8.2 Customer identity: pick a key
+### 8.2 Customer identity: pick a model
 
-The memory backend is keyed by a customer identifier. Common choices:
+Two backends have different identity models — pick the one that matches your setup.
 
-- **Phone number (E.164)** — the natural default. The relay already knows the customer's WhatsApp address as `whatsapp:+E164`; the phone number is that value minus the `whatsapp:` prefix. It matches the voice blueprint's `caller_number` key exactly, so voice calls and WhatsApp messages from the same phone naturally contribute to the same customer profile with no extra plumbing.
-- **User ID / CRM key** — if you already identify customers with a stable internal ID (`usr_abc123`, an account number, an email), you'd store that on the Twilio Conversation as a Conversation attribute or Participant attribute — Twilio Conversations supports arbitrary JSON attributes on both. The relay would then read the attribute when opening the ElevenLabs session and pass it as a dynamic variable. This is a small relay-side extension (adding one `store.upsert` field and one dynamic variable in `src/routes/twilio-conversation.js`).
-- **Composite key** — some deployments key memory by both, e.g., `user_id` when known, phone number as fallback. The tool schema can carry both fields and the backend decides which to use.
+**If you're using a home-rolled memory backend (the voice blueprint's pattern — a Twilio Function keyed by whatever you decide),** the identifier is your choice:
 
-The important thing is the identifier is stable across channels for the same customer. If your voice blueprint keys memory by phone number, the WhatsApp bot should too, so both channels' data ends up in one profile.
+- **Phone number (E.164)** — the natural default. The relay knows the WhatsApp customer's address as `whatsapp:+E164`; strip the `whatsapp:` prefix and you have a phone number. This matches the voice blueprint's `caller_number` key exactly, so voice calls and WhatsApp messages from the same phone naturally flow into one profile because your backend is treating them as the same key.
+- **User ID / CRM key** — if you already identify customers with a stable internal ID (`usr_abc123`, account number, email), store it on the Twilio Conversation as a Conversation attribute or Participant attribute. The relay reads the attribute when opening the ElevenLabs session and passes it as a dynamic variable — a small relay-side extension (one `store.upsert` field and one dynamic variable in `src/routes/twilio-conversation.js`).
+- **Composite** — some deployments prefer `user_id` when known and fall back to phone number. The tool schema carries both fields; the backend decides.
+
+**If you're using [Twilio Conversation Memory](https://www.twilio.com/docs/conversations/memory),** use its native identity model instead. Conversation Memory recognizes four channel identifiers out of the box — `email` (lowercase), `whatsapp` (auto-mapped from Twilio traffic), `phone` (E.164), `chat` (trimmed) — plus custom identifiers like `user_id` via [Custom Identity Rules](https://www.twilio.com/docs/conversations/memory/identity-resolution). Crucially, **WhatsApp is a distinct identifier from phone**, not "phone with a prefix" — they're two separate keys that Identity Resolution links to the same Profile. Cross-channel matching is priority-ordered: `user_id` > `email`/`whatsapp` > `phone` > `chat`. Twilio recommends **uploading customer Profiles up front** rather than relying on mid-conversation auto-detection to get reliable linking.
+
+For Conversation Memory, the practical setup is:
+
+- Pass the WhatsApp identifier through as-is; Twilio's `whatsapp` identifier auto-maps from Twilio traffic.
+- If you have a stable internal `user_id`, define a Custom Identity Rule for it and upload Profiles linking `user_id` to each customer's WhatsApp and phone identifiers. Because `user_id` is highest priority, subsequent conversations across channels resolve to the same Profile without additional setup.
+
+Either way, the goal is the same: the identifier(s) that reach your memory backend are stable across channels for the same customer — either as a single manual key you pick, or as a set of linked identifiers on a Twilio Profile.
 
 ### 8.3 Reusing the voice blueprint's memory backend
 
@@ -338,12 +347,13 @@ One line in the agent's system prompt is usually enough:
 
 ### 8.5 Passive capture (future direction)
 
-Writing back to memory — extracting facts from the conversation transcript and storing them — is the second half of the loop. Two paths:
+Writing back to memory — extracting facts from the conversation transcript and storing them — is the second half of the loop. A few paths:
 
-- **Add a write tool** to the agent (e.g. `store_customer_fact` with `key, value`) so the agent decides when to save observations mid-turn.
-- **Twilio Conversation Intelligence.** Run language operators on completed Conversations to extract entities into Twilio Sync, keyed by the same customer identifier. Runs entirely outside the relay's request path.
+- **[Twilio Conversation Memory](https://www.twilio.com/docs/conversations/memory).** The productized answer. Traits (structured customer attributes) and Observations (per-conversation facts) get extracted and stored automatically against the resolved Profile, keyed by any of the customer's linked identifiers. If you're already using Conversation Memory for recall (§8.2), passive capture is essentially the same product's other half.
+- **Twilio Conversation Intelligence.** Language operators run on completed Conversations to extract entities into Twilio Sync, keyed by the same customer identifier. Useful if you want the extraction pipeline but prefer your own storage.
+- **Add a write tool** to the agent (e.g. `store_customer_fact` with `key, value`) so the agent decides mid-turn when to save observations. Fits the home-rolled backend model.
 
-Both are compatible with the recall side above — neither is required to get memory value from day one.
+None are required to get memory value on day one — a recall-only setup is already useful.
 
 ## 9. Relay Endpoints
 
