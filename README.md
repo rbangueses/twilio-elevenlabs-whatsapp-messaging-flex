@@ -303,57 +303,48 @@ Common gotchas:
 
 ## 8. Optional: Customer Memory
 
-The voice blueprint at [twilio-elevenlabs-call-handoff-blueprint](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint#7-optional-conversation-memory) includes an optional memory pattern — an ElevenLabs webhook tool the agent invokes to recall stored facts about the current customer (name, preferences, past interactions, unresolved issues) at the start of a conversation. The same pattern works here, and the same memory backend can serve both channels since customer identity travels across.
+Twilio's [Conversation Memory](https://www.twilio.com/docs/conversations/memory) gives the messaging agent access to a Profile-based store so it can recall facts about the customer at the start of a conversation and weave them into replies. Because Conversation Memory resolves identifiers across channels to a single Profile, voice and WhatsApp interactions for the same customer land in one place — no per-channel identifier plumbing on the relay side. The pattern below mirrors the voice blueprint's [§7 Optional Conversation Memory](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint#7-optional-conversation-memory), pointed at Conversation Memory.
 
 ### 8.1 What memory adds
 
 - **Personalization.** *"Hi Alice — I see you called on Monday about your locked account. Did the password reset go through?"*
-- **Cross-channel context.** If the customer called yesterday and messages today, the messaging bot can reference the previous voice interaction.
+- **Cross-channel context.** If the customer called yesterday and messages today, the messaging bot can reference the previous voice interaction — Conversation Memory's Identity Resolution links the customer's WhatsApp and phone identifiers to the same Profile.
 - **Faster resolution.** The agent doesn't re-ask questions the customer has already answered on another channel.
 
-### 8.2 Customer identity: pick a model
+### 8.2 How identity resolves
 
-Two backends have different identity models — pick the one that matches your setup.
+Conversation Memory recognizes four channel identifiers out of the box, each normalized in a specific way:
 
-**If you're using a home-rolled memory backend (the voice blueprint's pattern — a Twilio Function keyed by whatever you decide),** the identifier is your choice:
+- **`email`** — Email channel, lowercased.
+- **`whatsapp`** — auto-mapped from Twilio WhatsApp traffic.
+- **`phone`** — Voice, SMS, RCS, MMS. Normalized to E.164.
+- **`chat`** — Chat channel, trimmed.
 
-- **Phone number (E.164)** — the natural default. The relay knows the WhatsApp customer's address as `whatsapp:+E164`; strip the `whatsapp:` prefix and you have a phone number. This matches the voice blueprint's `caller_number` key exactly, so voice calls and WhatsApp messages from the same phone naturally flow into one profile because your backend is treating them as the same key.
-- **User ID / CRM key** — if you already identify customers with a stable internal ID (`usr_abc123`, account number, email), store it on the Twilio Conversation as a Conversation attribute or Participant attribute. The relay reads the attribute when opening the ElevenLabs session and passes it as a dynamic variable — a small relay-side extension (one `store.upsert` field and one dynamic variable in `src/routes/twilio-conversation.js`).
-- **Composite** — some deployments prefer `user_id` when known and fall back to phone number. The tool schema carries both fields; the backend decides.
+Custom identifiers such as `user_id` are supported via [Custom Identity Rules](https://www.twilio.com/docs/conversations/memory/identity-resolution). WhatsApp is a **distinct identifier** from phone — two separate keys on the same Profile that Identity Resolution links together, not the same key with a prefix.
 
-**If you're using [Twilio Conversation Memory](https://www.twilio.com/docs/conversations/memory),** use its native identity model instead. Conversation Memory recognizes four channel identifiers out of the box — `email` (lowercase), `whatsapp` (auto-mapped from Twilio traffic), `phone` (E.164), `chat` (trimmed) — plus custom identifiers like `user_id` via [Custom Identity Rules](https://www.twilio.com/docs/conversations/memory/identity-resolution). Crucially, **WhatsApp is a distinct identifier from phone**, not "phone with a prefix" — they're two separate keys that Identity Resolution links to the same Profile. Cross-channel matching is priority-ordered: `user_id` > `email`/`whatsapp` > `phone` > `chat`. Twilio recommends **uploading customer Profiles up front** rather than relying on mid-conversation auto-detection to get reliable linking.
+Identity Resolution matches identifiers in priority order (`user_id` > `email`/`whatsapp` > `phone` > `chat`). Twilio recommends **uploading customer Profiles up front** rather than relying on automated matching during conversations, so identifiers from every channel resolve to the same Profile from day one.
 
-For Conversation Memory, the practical setup is:
+The relay's role is small: when opening the ElevenLabs session it passes a dynamic variable identifying the customer — typically `customerAddress` (the WhatsApp address it already carries), or a `user_id` read from a Twilio Conversation attribute if you're keying on a custom identifier. The ElevenLabs recall tool forwards that value to Conversation Memory, which handles the Profile lookup.
 
-- Pass the WhatsApp identifier through as-is; Twilio's `whatsapp` identifier auto-maps from Twilio traffic.
-- If you have a stable internal `user_id`, define a Custom Identity Rule for it and upload Profiles linking `user_id` to each customer's WhatsApp and phone identifiers. Because `user_id` is highest priority, subsequent conversations across channels resolve to the same Profile without additional setup.
+### 8.3 Attach the recall tool on the messaging agent
 
-Either way, the goal is the same: the identifier(s) that reach your memory backend are stable across channels for the same customer — either as a single manual key you pick, or as a set of linked identifiers on a Twilio Profile.
+The recall side is an ElevenLabs webhook tool that calls Conversation Memory. It follows the same tool + env-var pattern already documented in §5 for `escalate_to_flex`:
 
-### 8.3 Reusing the voice blueprint's memory backend
+1. Set up Conversation Memory per [Twilio's docs](https://www.twilio.com/docs/conversations/memory) and note the recall endpoint URL.
+2. Register the memory endpoint as an ElevenLabs environment variable (e.g. `memory_host`) and any auth as a secret-backed env var (e.g. `memory_authorization`).
+3. Attach the tool to the messaging agent via the ElevenLabs UI or `PATCH /v1/convai/agents/{agent_id}`. The tool payload sends the identifier the relay passed in its session dynamic variables.
 
-If you already have the voice blueprint deployed, you can point the messaging agent at the same memory backend:
-
-- Copy the `recall_customer_memory` tool config from the voice agent to the messaging agent — same URL (`{{system__env_handoff_host}}/memory_recall`), same auth env var, same request schema. If you go the ElevenLabs-API route, the tool_id is workspace-scoped, so you can attach it to both agents by reference.
-- Point the tool's identifier field at whichever key you chose in §8.2 — the phone number extracted from `customerAddress`, or the user ID from a Conversation attribute the relay passes as a dynamic variable.
-
-Full setup for the backend itself (deployment, storage, passive capture) lives in [section 7 of the voice blueprint README](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint#7-optional-conversation-memory). Everything there applies unchanged once you've abstracted the identifier.
+The voice blueprint's [§7 Optional Conversation Memory](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint#7-optional-conversation-memory) covers the equivalent voice-side tool config — the shape is the same, only the identifier field differs.
 
 ### 8.4 Agent prompt guidance
 
-One line in the agent's system prompt is usually enough:
+Add one line to the agent's system prompt:
 
-> At the start of every conversation, call `recall_customer_memory` with the customer's identifier. If the tool returns useful context, weave it into your first reply naturally. If it returns nothing, greet the customer without referencing memory.
+> At the start of every conversation, call the memory recall tool with the customer's identifier. If it returns useful context, weave it into your first reply naturally. If it returns nothing, greet the customer without referencing memory.
 
-### 8.5 Passive capture (future direction)
+### 8.5 Passive capture
 
-Writing back to memory — extracting facts from the conversation transcript and storing them — is the second half of the loop. A few paths:
-
-- **[Twilio Conversation Memory](https://www.twilio.com/docs/conversations/memory).** The productized answer. Traits (structured customer attributes) and Observations (per-conversation facts) get extracted and stored automatically against the resolved Profile, keyed by any of the customer's linked identifiers. If you're already using Conversation Memory for recall (§8.2), passive capture is essentially the same product's other half.
-- **Twilio Conversation Intelligence.** Language operators run on completed Conversations to extract entities into Twilio Sync, keyed by the same customer identifier. Useful if you want the extraction pipeline but prefer your own storage.
-- **Add a write tool** to the agent (e.g. `store_customer_fact` with `key, value`) so the agent decides mid-turn when to save observations. Fits the home-rolled backend model.
-
-None are required to get memory value on day one — a recall-only setup is already useful.
+Once Conversation Memory is set up for recall, passive capture is the same product's other half. Traits (structured customer attributes) and Observations (per-conversation facts) are extracted from completed conversations and stored automatically against the resolved Profile — no additional integration on the relay side. Configure Traits and Observations per [Twilio's docs](https://www.twilio.com/docs/conversations/memory).
 
 ## 9. Relay Endpoints
 
