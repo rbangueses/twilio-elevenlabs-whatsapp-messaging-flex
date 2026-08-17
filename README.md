@@ -28,15 +28,16 @@ The blueprint borrows the core handoff idea from the voice-oriented [twilio-elev
   - [5.3 Prompt guidance](#53-prompt-guidance)
 - [6. Running It Locally](#6-running-it-locally)
 - [7. Testing End-to-End](#7-testing-end-to-end)
-- [8. Relay Endpoints](#8-relay-endpoints)
-- [9. Payloads](#9-payloads)
-  - [9.1 Escalation Payload](#91-escalation-payload)
-  - [9.2 Flex Interaction Shape](#92-flex-interaction-shape)
-- [10. Reliability Rules](#10-reliability-rules)
-- [11. Channel Scope](#11-channel-scope)
-- [12. Conversation Modes and State Machine](#12-conversation-modes-and-state-machine)
-- [13. What's Next](#13-whats-next)
-- [14. Reference Docs](#14-reference-docs)
+- [8. Optional: Customer Memory](#8-optional-customer-memory)
+- [9. Relay Endpoints](#9-relay-endpoints)
+- [10. Payloads](#10-payloads)
+  - [10.1 Escalation Payload](#101-escalation-payload)
+  - [10.2 Flex Interaction Shape](#102-flex-interaction-shape)
+- [11. Reliability Rules](#11-reliability-rules)
+- [12. Channel Scope](#12-channel-scope)
+- [13. Conversation Modes and State Machine](#13-conversation-modes-and-state-machine)
+- [14. What's Next](#14-whats-next)
+- [15. Reference Docs](#15-reference-docs)
 
 ## 1. Prerequisites
 
@@ -300,7 +301,51 @@ Common gotchas:
 - **Bot replies never arrive but webhooks are landing.** Check the ElevenLabs conversation status via the API. `status: "failed"` with a `terminated_reason` tells you why. Also confirm the agent's `text_only` mode is compatible with your setup.
 - **Escalate webhook returns 400.** The relay logs the specific field. Most common is a missing `businessAddress` — the relay falls back to `TWILIO_WHATSAPP_SENDER`, so double-check that env var is set.
 
-## 8. Relay Endpoints
+## 8. Optional: Customer Memory
+
+The voice blueprint at [twilio-elevenlabs-call-handoff-blueprint](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint#7-optional-conversation-memory) includes an optional memory pattern — an ElevenLabs webhook tool the agent invokes to recall stored facts about the current customer (name, preferences, past interactions, unresolved issues) at the start of a conversation. The same pattern works here, and the same memory backend can serve both channels since customer identity travels across.
+
+### 8.1 What memory adds
+
+- **Personalization.** *"Hi Alice — I see you called on Monday about your locked account. Did the password reset go through?"*
+- **Cross-channel context.** If the customer called yesterday and messages today, the messaging bot can reference the previous voice interaction.
+- **Faster resolution.** The agent doesn't re-ask questions the customer has already answered on another channel.
+
+### 8.2 Customer identity: pick a key
+
+The memory backend is keyed by a customer identifier. Common choices:
+
+- **Phone number (E.164)** — the natural default. The relay already knows the customer's WhatsApp address as `whatsapp:+E164`; the phone number is that value minus the `whatsapp:` prefix. It matches the voice blueprint's `caller_number` key exactly, so voice calls and WhatsApp messages from the same phone naturally contribute to the same customer profile with no extra plumbing.
+- **User ID / CRM key** — if you already identify customers with a stable internal ID (`usr_abc123`, an account number, an email), you'd store that on the Twilio Conversation as a Conversation attribute or Participant attribute — Twilio Conversations supports arbitrary JSON attributes on both. The relay would then read the attribute when opening the ElevenLabs session and pass it as a dynamic variable. This is a small relay-side extension (adding one `store.upsert` field and one dynamic variable in `src/routes/twilio-conversation.js`).
+- **Composite key** — some deployments key memory by both, e.g., `user_id` when known, phone number as fallback. The tool schema can carry both fields and the backend decides which to use.
+
+The important thing is the identifier is stable across channels for the same customer. If your voice blueprint keys memory by phone number, the WhatsApp bot should too, so both channels' data ends up in one profile.
+
+### 8.3 Reusing the voice blueprint's memory backend
+
+If you already have the voice blueprint deployed, you can point the messaging agent at the same memory backend:
+
+- Copy the `recall_customer_memory` tool config from the voice agent to the messaging agent — same URL (`{{system__env_handoff_host}}/memory_recall`), same auth env var, same request schema. If you go the ElevenLabs-API route, the tool_id is workspace-scoped, so you can attach it to both agents by reference.
+- Point the tool's identifier field at whichever key you chose in §8.2 — the phone number extracted from `customerAddress`, or the user ID from a Conversation attribute the relay passes as a dynamic variable.
+
+Full setup for the backend itself (deployment, storage, passive capture) lives in [section 7 of the voice blueprint README](https://github.com/rbangueses/twilio-elevenlabs-call-handoff-blueprint#7-optional-conversation-memory). Everything there applies unchanged once you've abstracted the identifier.
+
+### 8.4 Agent prompt guidance
+
+One line in the agent's system prompt is usually enough:
+
+> At the start of every conversation, call `recall_customer_memory` with the customer's identifier. If the tool returns useful context, weave it into your first reply naturally. If it returns nothing, greet the customer without referencing memory.
+
+### 8.5 Passive capture (future direction)
+
+Writing back to memory — extracting facts from the conversation transcript and storing them — is the second half of the loop. Two paths:
+
+- **Add a write tool** to the agent (e.g. `store_customer_fact` with `key, value`) so the agent decides when to save observations mid-turn.
+- **Twilio Conversation Intelligence.** Run language operators on completed Conversations to extract entities into Twilio Sync, keyed by the same customer identifier. Runs entirely outside the relay's request path.
+
+Both are compatible with the recall side above — neither is required to get memory value from day one.
+
+## 9. Relay Endpoints
 
 | Method | Path | Called by | Purpose |
 | --- | --- | --- | --- |
@@ -310,9 +355,9 @@ Common gotchas:
 | `POST` | `/webhooks/elevenlabs/escalate-to-flex` | ElevenLabs webhook tool | Create a Flex Interaction for the existing Twilio Conversation. |
 | `POST` | `/webhooks/taskrouter/events` | Twilio TaskRouter | Advance conversation state on reservation.accepted / task.completed / task.canceled. |
 
-## 9. Payloads
+## 10. Payloads
 
-### 9.1 Escalation Payload
+### 10.1 Escalation Payload
 
 ElevenLabs calls the relay with:
 
@@ -340,7 +385,7 @@ The relay validates:
 - `summary`, `intent`, and `reason` are short enough for TaskRouter attributes.
 - `elevenlabsConversationId` and `priority` are optional; accepted and stored if present.
 
-### 9.2 Flex Interaction Shape
+### 10.2 Flex Interaction Shape
 
 The relay creates the Flex Interaction using Twilio's Flex Interactions API. Conceptual request body:
 
@@ -378,7 +423,7 @@ The relay creates the Flex Interaction using Twilio's Flex Interactions API. Con
 }
 ```
 
-## 10. Reliability Rules
+## 11. Reliability Rules
 
 Invariants the relay enforces today. Every bullet here is backed by code and tests — treat them as guardrails not to break in a refactor.
 
@@ -389,13 +434,13 @@ Invariants the relay enforces today. Every bullet here is backed by code and tes
 - Never send new customer messages to ElevenLabs after `human_pending` or `human`.
 - Store enough IDs to debug the full path: `MessageSid`, `ConversationSid`, ElevenLabs `conversation_id`, `handoffId`, Flex `InteractionSid`, and TaskRouter Task SID.
 
-## 11. Channel Scope
+## 12. Channel Scope
 
 The relay is scoped to WhatsApp today. `src/routes/twilio-conversation.js` filters `Author` — messages whose author doesn't start with `whatsapp:` (SMS bare `+E164`, chat identity strings) get a `200` no-op with no state entry or bot session opened. This lets the same Twilio Conversations Service be shared with SMS, chat, or other Flex channels without cross-talk.
 
-**Coming soon:** SMS and webchat support are on the roadmap and will land in this repo. The plan is a per-channel address parser, a `channel` field on state, channel-driven `channelType` on Flex Interaction attributes, and a `channel` dynamic variable passed into the ElevenLabs session so the agent can tune tone and length per medium. See [What's Next](#13-whats-next) for the outline.
+**Coming soon:** SMS and webchat support are on the roadmap and will land in this repo. The plan is a per-channel address parser, a `channel` field on state, channel-driven `channelType` on Flex Interaction attributes, and a `channel` dynamic variable passed into the ElevenLabs session so the agent can tune tone and length per medium. See [What's Next](#14-whats-next) for the outline.
 
-## 12. Conversation Modes and State Machine
+## 13. Conversation Modes and State Machine
 
 The relay keeps a small state machine per Twilio Conversation:
 
@@ -414,7 +459,7 @@ Mode transition triggers (details in [docs/architecture.md](docs/architecture.md
 - `human_pending` → `human`: TaskRouter `reservation.accepted` for the escalation task.
 - `human` → `closed`: TaskRouter `task.completed` or `task.canceled` for the escalation task.
 
-## 13. What's Next
+## 14. What's Next
 
 The relay is functionally complete for WhatsApp-only bot-to-Flex routing. Reasonable hardening tracks from here:
 
@@ -426,7 +471,7 @@ The relay is functionally complete for WhatsApp-only bot-to-Flex routing. Reason
 - **Session-manager hardening.** Two known follow-ups: (1) wire `session.onClose(() => sessions.delete(sid))` so a dropped WebSocket gets evicted from the pool; (2) guard the concurrent-open race so two same-conversation webhooks arriving within milliseconds don't both open a session.
 - **Message-status endpoint.** Currently expects Twilio Messaging-style `MessageStatus`. To use Conversations' `onDeliveryUpdated`, adapt the route to accept `DeliveryStatus` and expand the Post-Event webhook filter set.
 
-## 14. Reference Docs
+## 15. Reference Docs
 
 - Twilio Flex Conversations: https://www.twilio.com/docs/flex/developer/conversations
 - Twilio Flex Interactions API: https://www.twilio.com/docs/flex/developer/conversations/interactions-api/interactions
