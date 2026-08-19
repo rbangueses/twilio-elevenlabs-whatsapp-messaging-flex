@@ -27,9 +27,10 @@ Paired with the voice blueprint, a single WhatsApp business number can serve bot
 - [3. Architecture](#3-architecture)
 - [4. Twilio Setup](#4-twilio-setup)
 - [5. ElevenLabs Setup](#5-elevenlabs-setup)
-  - [5.1 Register the tool's env vars and secret](#51-register-the-tools-env-vars-and-secret)
-  - [5.2 Attach the escalate_to_flex webhook tool](#52-attach-the-escalate_to_flex-webhook-tool)
-  - [5.3 Prompt guidance](#53-prompt-guidance)
+  - [5.1 Preferred: create a clean WhatsApp agent automatically](#51-preferred-create-a-clean-whatsapp-agent-automatically)
+  - [5.2 Manual fallback: register the tool's env vars and secret](#52-manual-fallback-register-the-tools-env-vars-and-secret)
+  - [5.3 Manual fallback: attach the escalate_to_flex webhook tool](#53-manual-fallback-attach-the-escalate_to_flex-webhook-tool)
+  - [5.4 Prompt guidance](#54-prompt-guidance)
 - [6. Running It Locally](#6-running-it-locally)
 - [7. Testing End-to-End](#7-testing-end-to-end)
 - [8. Optional: Customer Memory](#8-optional-customer-memory)
@@ -177,7 +178,7 @@ The message-status endpoint (`/webhooks/twilio/message-status`) is optional and 
 
 ## 5. ElevenLabs Setup
 
-Create or choose an ElevenLabs Conversational AI agent for text conversations. If you're reusing a voice agent, either duplicate it for messaging or make sure the messaging session initiation provides values for every dynamic variable referenced by every tool on the agent, otherwise ElevenLabs will terminate the session at start with `Missing required dynamic variables in tools`.
+Create a dedicated ElevenLabs Conversational AI agent for WhatsApp text conversations. Avoid duplicating a voice agent for this blueprint: duplicated voice tools can carry required dynamic variables such as `parent_call_sid`, `caller_number`, or `called_number`, and ElevenLabs will terminate the WhatsApp session at start if those variables are not provided.
 
 The relay passes these four dynamic variables when opening the WebSocket session:
 
@@ -190,7 +191,44 @@ The relay passes these four dynamic variables when opening the WebSocket session
 }
 ```
 
-### 5.1 Register the tool's env vars and secret
+### 5.1 Preferred: create a clean WhatsApp agent automatically
+
+The preferred setup path is to create a fresh WhatsApp-only agent from this repo. The script creates the ElevenLabs workspace environment variables if they are missing, creates the `escalate_to_flex` webhook tool, creates a new agent with the WhatsApp prompt, attaches only that new tool, and prints the `ELEVENLABS_AGENT_ID` to add to `.env`.
+
+Before running it, make sure `.env` contains:
+
+```bash
+ELEVENLABS_API_KEY=<your-elevenlabs-api-key>
+HANDOFF_TOKEN=<same-token-used-by-the-relay>
+PUBLIC_BASE_URL=https://<your-ngrok-host>
+```
+
+Then run:
+
+```bash
+npm run elevenlabs:create-whatsapp-agent -- --name "AA ireland-whatsapp"
+```
+
+Or pass the relay host explicitly:
+
+```bash
+npm run elevenlabs:create-whatsapp-agent -- --name "AA ireland-whatsapp" --relay-host rbangueses.ngrok.app
+```
+
+The script prints:
+
+```bash
+Add this to .env:
+ELEVENLABS_AGENT_ID=agent_...
+```
+
+After adding that value to `.env`, skip the manual fallback steps below and continue with [Running It Locally](#6-running-it-locally). You can inspect all script options with:
+
+```bash
+npm run elevenlabs:create-whatsapp-agent -- --help
+```
+
+### 5.2 Manual fallback: register the tool's env vars and secret
 
 Webhook tools reference workspace-level env vars (for URL templates like `{{system__env_relay_host}}`) and secrets (for header values, referenced by `env_var_label`). Both must exist **before** you register the tool, or the tool-create call will fail with `Environment variable with label '...' not found`.
 
@@ -249,7 +287,7 @@ curl --fail-with-body -sS https://api.elevenlabs.io/v1/convai/environment-variab
     | .[] | {label, type}'
 ```
 
-### 5.2 Attach the escalate_to_flex webhook tool
+### 5.3 Manual fallback: attach the escalate_to_flex webhook tool
 
 See [examples/elevenlabs/escalate-to-flex-tool.example.json](examples/elevenlabs/escalate-to-flex-tool.example.json). The tool references `{{system__env_relay_host}}` in its URL and `env_var_label: "relay_authorization"` in its headers, so the two env vars above must exist first. You can add the tool via the ElevenLabs UI or via `PATCH /v1/convai/agents/{agent_id}`.
 
@@ -270,7 +308,7 @@ curl --fail-with-body -X POST https://api.elevenlabs.io/v1/convai/tools \
 
 Copy the returned tool ID from `/tmp/escalate-to-flex-tool.response.json`, then attach it to the WhatsApp agent in the ElevenLabs UI or through the agent update API.
 
-### 5.3 Prompt guidance
+### 5.4 Prompt guidance
 
 Use [examples/elevenlabs/agent-prompt-whatsapp.md](examples/elevenlabs/agent-prompt-whatsapp.md) as a copy/paste reference prompt for the WhatsApp messaging agent.
 
