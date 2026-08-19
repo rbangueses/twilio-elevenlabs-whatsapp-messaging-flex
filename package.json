@@ -6,6 +6,7 @@
   "engines": { "node": ">=20.0.0" },
   "scripts": {
     "dev": "node --watch src/server.js",
+    "elevenlabs:create-whatsapp-agent": "node scripts/create-whatsapp-agent.js",
     "start": "node src/server.js",
     "test": "vitest run",
     "test:watch": "vitest"

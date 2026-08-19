@@ -43,5 +43,3 @@ The tool receives these fields from session dynamic variables. Do not ask the cu
 - `handoffId`: `{{handoffId}}`
 - `customerAddress`: `{{customerAddress}}`
 - `businessAddress`: `{{businessAddress}}`
-
-If this agent is shared with a voice channel, use `escalate_to_flex` only when `twilioConversationSid` is set. Use the voice handoff tool only when `parent_call_sid` is set. Never call both escalation tools in one session.
