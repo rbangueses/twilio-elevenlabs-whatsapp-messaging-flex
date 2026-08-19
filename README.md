@@ -197,23 +197,56 @@ Webhook tools reference workspace-level env vars (for URL templates like `{{syst
 Create the secret that carries the bearer token:
 
 ```bash
+set -o pipefail
+
 # Value must include the "Bearer " prefix — this is used as the raw
 # Authorization header value.
-curl -X POST -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/json" \
+curl --fail-with-body -sS -X POST \
+  -H "xi-api-key: $ELEVENLABS_API_KEY" \
+  -H "Content-Type: application/json" \
   -d "{\"type\":\"new\",\"name\":\"relay_authorization\",\"value\":\"Bearer $HANDOFF_TOKEN\"}" \
-  "https://api.elevenlabs.io/v1/convai/secrets"
+  "https://api.elevenlabs.io/v1/convai/secrets" \
+  | tee /tmp/relay-authorization-secret.response.json
+
+RELAY_AUTHORIZATION_SECRET_ID="$(jq -r '.secret_id // .id // empty' /tmp/relay-authorization-secret.response.json)"
+test -n "$RELAY_AUTHORIZATION_SECRET_ID" || {
+  echo "Could not find a secret ID in /tmp/relay-authorization-secret.response.json"
+  exit 1
+}
 ```
 
 Then register the env vars referenced by the tool (`relay_host` is a plain string; `relay_authorization` is a secret reference — reuse the `secret_id` returned above):
 
 ```bash
-curl -X POST -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/json" \
-  -d '{"label":"relay_host","type":"string","values":{"production":"<your-ngrok-host>"}}' \
-  "https://api.elevenlabs.io/v1/convai/environment-variables"
+# Host only, no https:// prefix. The tool URL already includes https://.
+RELAY_HOST="<your-ngrok-host>"
 
-curl -X POST -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/json" \
-  -d '{"label":"relay_authorization","type":"secret","values":{"production":{"secret_id":"<secret_id-from-above>"}}}' \
-  "https://api.elevenlabs.io/v1/convai/environment-variables"
+curl --fail-with-body -sS -X POST \
+  -H "xi-api-key: $ELEVENLABS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg host "$RELAY_HOST" \
+    '{label:"relay_host",type:"string",values:{production:$host}}')" \
+  "https://api.elevenlabs.io/v1/convai/environment-variables" \
+  | tee /tmp/relay-host-env.response.json
+
+curl --fail-with-body -sS -X POST \
+  -H "xi-api-key: $ELEVENLABS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg secret_id "$RELAY_AUTHORIZATION_SECRET_ID" \
+    '{label:"relay_authorization",type:"secret",values:{production:{secret_id:$secret_id}}}')" \
+  "https://api.elevenlabs.io/v1/convai/environment-variables" \
+  | tee /tmp/relay-authorization-env.response.json
+```
+
+Verify both environment variable labels exist before creating the tool:
+
+```bash
+curl --fail-with-body -sS https://api.elevenlabs.io/v1/convai/environment-variables \
+  -H "xi-api-key: $ELEVENLABS_API_KEY" \
+  | jq -e '.environment_variables
+    | map(select(.label == "relay_host" or .label == "relay_authorization"))
+    | sort_by(.label)
+    | .[] | {label, type}'
 ```
 
 ### 5.2 Attach the escalate_to_flex webhook tool
@@ -223,10 +256,12 @@ See [examples/elevenlabs/escalate-to-flex-tool.example.json](examples/elevenlabs
 To create the WhatsApp escalation tool through the ElevenLabs Tools API, run this from the repo root:
 
 ```bash
+set -o pipefail
+
 jq '{ tool_config: . }' examples/elevenlabs/escalate-to-flex-tool.example.json \
   > /tmp/escalate-to-flex-tool.request.json
 
-curl -X POST https://api.elevenlabs.io/v1/convai/tools \
+curl --fail-with-body -X POST https://api.elevenlabs.io/v1/convai/tools \
   -H "xi-api-key: $ELEVENLABS_API_KEY" \
   -H "content-type: application/json" \
   --data @/tmp/escalate-to-flex-tool.request.json \
