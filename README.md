@@ -552,6 +552,8 @@ The relay keeps a small state machine per Twilio Conversation:
 
 The most important rule is simple: once escalation begins, the bot must stop replying in that Twilio Conversation.
 
+`closed` here is the relay's local application mode. Twilio Conversation `closed` is a separate durable channel state; only set it intentionally through Twilio timers or API calls when your product lifecycle is ready for that thread to become final.
+
 Mode transition triggers (details in [docs/architecture.md](docs/architecture.md#mode-transitions)):
 
 - `bot` → `human_pending`: validated `escalate_to_flex` tool call.
@@ -567,6 +569,7 @@ The relay is functionally complete for WhatsApp-only bot-to-Flex routing. Reason
 - **Multi-channel support (SMS, chat, RCS).** Replace the `whatsapp:` Author filter in `src/routes/twilio-conversation.js` with a per-channel `parseAddress`, record `channel` on state, drive `channelType` on the Flex Interaction attributes from that state field, and pass `channel` into the ElevenLabs session so the agent can adjust tone/length per medium.
 - **Production storage adapter.** Swap `src/state/file-store.js` for Redis or Postgres behind the same `Store` interface — the `transitionMode` contract is already there; the file store's global write mutex + per-key locks translate cleanly to WATCH/MULTI (Redis) or `SELECT … FOR UPDATE` (Postgres).
 - **Flex UI panel for handoff context.** Surface `summary`, `intent`, `reason`, and `handoffId` prominently for the agent picking up the task — task attributes are already carrying them.
+- **Conversation lifecycle management.** Today, if ElevenLabs contains the interaction, no Flex handoff is created and the relay only cleans up the idle ElevenLabs WebSocket. For production, decide how contained bot conversations should age out: keep the Twilio Conversation open for async follow-up, move it to `inactive` after a timer, or close it after a longer timer. A future ElevenLabs webhook tool such as `mark_conversation_resolved` could let the agent explicitly tell the relay that the issue was contained, so the relay can update local state and apply the right Twilio Conversation timer or state policy.
 - **Session-manager hardening.** Two known follow-ups: (1) wire `session.onClose(() => sessions.delete(sid))` so a dropped WebSocket gets evicted from the pool; (2) guard the concurrent-open race so two same-conversation webhooks arriving within milliseconds don't both open a session.
 - **Message-status endpoint.** Currently expects Twilio Messaging-style `MessageStatus`. To use Conversations' `onDeliveryUpdated`, adapt the route to accept `DeliveryStatus` and expand the Post-Event webhook filter set.
 
