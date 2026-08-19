@@ -295,6 +295,8 @@ cp .env.example .env
 npm run dev
 ```
 
+The server loads `.env` automatically at startup. You do not need to `source .env` before running `npm run dev`.
+
 Expose port 3000 with ngrok:
 
 ```bash
