@@ -220,6 +220,21 @@ curl -X POST -H "xi-api-key: $ELEVENLABS_API_KEY" -H "Content-Type: application/
 
 See [examples/elevenlabs/escalate-to-flex-tool.example.json](examples/elevenlabs/escalate-to-flex-tool.example.json). The tool references `{{system__env_relay_host}}` in its URL and `env_var_label: "relay_authorization"` in its headers, so the two env vars above must exist first. You can add the tool via the ElevenLabs UI or via `PATCH /v1/convai/agents/{agent_id}`.
 
+To create the WhatsApp escalation tool through the ElevenLabs Tools API, run this from the repo root:
+
+```bash
+jq '{ tool_config: . }' examples/elevenlabs/escalate-to-flex-tool.example.json \
+  > /tmp/escalate-to-flex-tool.request.json
+
+curl -X POST https://api.elevenlabs.io/v1/convai/tools \
+  -H "xi-api-key: $ELEVENLABS_API_KEY" \
+  -H "content-type: application/json" \
+  --data @/tmp/escalate-to-flex-tool.request.json \
+  | tee /tmp/escalate-to-flex-tool.response.json
+```
+
+Copy the returned tool ID from `/tmp/escalate-to-flex-tool.response.json`, then attach it to the WhatsApp agent in the ElevenLabs UI or through the agent update API.
+
 ### 5.3 Prompt guidance
 
 The agent prompt should instruct the agent to call `escalate_to_flex` when:
