@@ -272,7 +272,9 @@ Copy the returned tool ID from `/tmp/escalate-to-flex-tool.response.json`, then 
 
 ### 5.3 Prompt guidance
 
-The agent prompt should instruct the agent to call `escalate_to_flex` when:
+Use [examples/elevenlabs/agent-prompt-whatsapp.md](examples/elevenlabs/agent-prompt-whatsapp.md) as a copy/paste reference prompt for the WhatsApp messaging agent.
+
+At minimum, the agent prompt should instruct the agent to call `escalate_to_flex` when:
 
 - The customer explicitly asks for a human.
 - The customer is frustrated or repeats that the answer is not helping.
@@ -392,7 +394,7 @@ The voice blueprint's [§7 Optional Conversation Memory](https://github.com/rban
 
 ### 8.4 Agent prompt guidance
 
-Add one line to the agent's system prompt:
+If you use [the reference WhatsApp agent prompt](examples/elevenlabs/agent-prompt-whatsapp.md), the optional memory guidance is already included. If you are using your own prompt, add one line to the agent's system prompt:
 
 > At the start of every conversation, call the memory recall tool with the customer's identifier. If it returns useful context, weave it into your first reply naturally. If it returns nothing, greet the customer without referencing memory.
 
