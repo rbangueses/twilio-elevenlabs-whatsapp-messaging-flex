@@ -206,13 +206,13 @@ PUBLIC_BASE_URL=https://<your-ngrok-host>
 Then run:
 
 ```bash
-npm run elevenlabs:create-whatsapp-agent -- --name "AA ireland-whatsapp"
+npm run elevenlabs:create-whatsapp-agent -- --name "Acme Support WhatsApp"
 ```
 
 Or pass the relay host explicitly:
 
 ```bash
-npm run elevenlabs:create-whatsapp-agent -- --name "AA ireland-whatsapp" --relay-host rbangueses.ngrok.app
+npm run elevenlabs:create-whatsapp-agent -- --name "Acme Support WhatsApp" --relay-host example.ngrok.app
 ```
 
 The script prints:

@@ -8,14 +8,14 @@ import {
 describe('create WhatsApp agent script', () => {
   it('builds a WhatsApp-only agent payload with only the created tool id attached', () => {
     const payload = buildAgentCreatePayload({
-      name: 'AA Ireland WhatsApp',
+      name: 'Acme Support WhatsApp',
       prompt: 'You are concise.',
       toolId: 'tool_123',
       llm: 'gemini-2.0-flash',
     });
 
     expect(payload).toEqual({
-      name: 'AA Ireland WhatsApp',
+      name: 'Acme Support WhatsApp',
       tags: ['twilio', 'whatsapp', 'flex'],
       conversation_config: {
         agent: {
@@ -68,7 +68,7 @@ describe('create WhatsApp agent script', () => {
       relayHost: 'example.ngrok.app',
       promptPath: 'examples/elevenlabs/agent-prompt-whatsapp.md',
       toolPath: 'examples/elevenlabs/escalate-to-flex-tool.example.json',
-      name: 'AA Ireland WhatsApp',
+      name: 'Acme Support WhatsApp',
       fetchImpl,
       log: () => {},
     });
